@@ -1,0 +1,14 @@
+{
+  "name": "@docpilot/sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/index.ts --target node --outdir dist --external @openai/codex-sdk",
+    "start": "node dist/index.js",
+    "dev": "bun build src/index.ts --target node --outdir dist --external @openai/codex-sdk && node dist/index.js"
+  },
+  "dependencies": {
+    "@openai/codex-sdk": "latest"
+  }
+}
