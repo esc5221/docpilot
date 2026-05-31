@@ -103,7 +103,11 @@ export interface AgentEditRequest {
 }
 
 export type AgentEditStreamEvent =
-  /** Codex's streamed narration of what it's doing. */
+  /** A shell command the agent ran (tool call), keyed by id for in-place status. */
+  | { type: "command"; id: string; command: string; status: "running" | "done" | "failed" }
+  /** Streamed reasoning summary (the agent's "thinking"). */
+  | { type: "reasoning"; text: string }
+  /** Codex's streamed final-message narration. */
   | { type: "progress"; text: string }
   /** Terminal success — the edited document to load back. */
   | { type: "done"; text?: string; docBase64?: string; summary: string }

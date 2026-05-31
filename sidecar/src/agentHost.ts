@@ -97,6 +97,8 @@ export async function* agentEdit(req: AgentEditRequest): AsyncGenerator<AgentEdi
       `Edit ./${file} per the instruction. Read AGENTS.md first and follow it exactly.`,
       req.imageBase64 ? "An image of the current page is attached for visual context." : "",
       req.selection ? `\nThe user has selected this text (focus your edit here):\n${req.selection}` : "",
+      "\nWhen done, reply with ONE short sentence summarizing the change.",
+      "Do NOT paste the document text or verification output in your reply — your tool steps already show the work.",
       `\n[INSTRUCTION]\n${req.instruction}`,
     ].join("\n");
 
@@ -107,6 +109,9 @@ export async function* agentEdit(req: AgentEditRequest): AsyncGenerator<AgentEdi
       imagePaths,
     })) {
       if (ev.kind === "delta") yield { type: "progress", text: ev.text };
+      else if (ev.kind === "command")
+        yield { type: "command", id: ev.id, command: ev.command, status: ev.status };
+      else if (ev.kind === "reasoning") yield { type: "reasoning", text: ev.text };
       else if (ev.kind === "final") summary = ev.text;
     }
 

@@ -1,0 +1,101 @@
+/**
+ * Modern flat skin for the embedded eigenpal docx-editor.
+ *
+ * The editor ships a dated, embossed toolbar (slate borders + inner shadows on
+ * every control). We can't touch its markup, but everything lives under
+ * `.ep-root` inside our `.dp-docx` wrapper, so scoped `.ep-root ...`
+ * rules (higher specificity) + !important flatten the chrome without affecting
+ * the rest of the app. Document content lives under `.paged-editor__pages-*`
+ * and is left untouched.
+ */
+
+/* Accent + radius cohesion (the component reads these HSL-triplet vars). */
+.ep-root {
+  --primary: 38 58% 52%; /* amber, matches app accent */
+  --primary-foreground: 36 45% 12%;
+  --ring: 38 58% 52%;
+  --radius: 0.6rem;
+}
+
+/* ── Flatten control buttons (undo/redo, B/I/U/S, font +/-, color, link) ──── */
+.ep-root button:not(.bg-primary):not(.bg-destructive) {
+  box-shadow: none !important;
+  border-color: transparent !important;
+  background-color: transparent !important;
+  border-radius: 8px !important;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease !important;
+}
+.ep-root button:not(.bg-primary):not(.bg-destructive):hover {
+  background-color: rgba(15, 23, 42, 0.07) !important;
+}
+.ep-root button:disabled {
+  opacity: 0.4 !important;
+}
+
+/* Active / toggled state (Bold on, etc.) — subtle amber tint. */
+.ep-root button[data-state="on"],
+.ep-root button[aria-pressed="true"],
+.ep-root button.bg-slate-200 {
+  background-color: rgba(210, 162, 76, 0.2) !important;
+  color: #8a5a14 !important;
+}
+
+/* ── Dropdown triggers (zoom / heading / font) — flat with a hairline ─────── */
+.ep-root [role="combobox"] {
+  box-shadow: none !important;
+  background-color: transparent !important;
+  border: 1px solid rgba(15, 23, 42, 0.12) !important;
+  border-radius: 8px !important;
+}
+.ep-root [role="combobox"]:hover {
+  background-color: rgba(15, 23, 42, 0.04) !important;
+  border-color: rgba(15, 23, 42, 0.2) !important;
+}
+
+/* Font-size / numeric inputs. */
+.ep-root input[type="text"],
+.ep-root input[type="number"] {
+  box-shadow: none !important;
+  border: 1px solid rgba(15, 23, 42, 0.12) !important;
+  border-radius: 6px !important;
+}
+
+/* ── Light scrollbars inside the editor ───────────────────────────────────
+   The app's global scrollbar is dark graphite (for the dark chrome); on the
+   editor's light surface that reads as solid black. Re-skin everything under
+   .ep-root (page scroll + toolbar overflow) to a subtle ink-on-light thumb. */
+.ep-root,
+.ep-root * {
+  scrollbar-color: rgba(15, 23, 42, 0.22) transparent;
+}
+.ep-root::-webkit-scrollbar,
+.ep-root *::-webkit-scrollbar {
+  width: 12px;
+  height: 10px;
+}
+.ep-root::-webkit-scrollbar-track,
+.ep-root *::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ep-root::-webkit-scrollbar-thumb,
+.ep-root *::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.2);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+.ep-root::-webkit-scrollbar-thumb:hover,
+.ep-root *::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.34);
+  background-clip: content-box;
+}
+
+/* Dropdown / popover menus that open from the toolbar — soften. */
+.ep-root [role="listbox"],
+.ep-root [role="menu"] {
+  border-radius: 12px !important;
+  border: 1px solid rgba(15, 23, 42, 0.1) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16) !important;
+}

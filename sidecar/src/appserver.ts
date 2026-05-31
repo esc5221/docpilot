@@ -18,8 +18,14 @@ import readline from "node:readline";
 
 const require = createRequire(import.meta.url);
 
-/** Resolve the arch-agnostic codex launcher shipped with @openai/codex. */
+/**
+ * Resolve the codex launcher. In production the Rust shell points us at the
+ * user's system codex via DOCPILOT_CODEX (we don't bundle the native binary).
+ * In dev we fall back to the arch-agnostic launcher shipped with @openai/codex.
+ */
 function codexLauncher(): { cmd: string; args: string[] } {
+  const sys = process.env.DOCPILOT_CODEX;
+  if (sys) return { cmd: sys, args: ["app-server"] };
   const js = require.resolve("@openai/codex/bin/codex.js");
   return { cmd: process.execPath, args: [js, "app-server"] };
 }
@@ -30,14 +36,22 @@ export interface TurnUsage {
   outputTokens: number;
 }
 
+export type CommandStatus = "running" | "done" | "failed";
+
 /** What `runTurn` streams back to the caller. */
 export type TurnEvent =
   | { kind: "session"; threadId: string }
   | { kind: "delta"; text: string }
+  /** A shell command the agent ran (tool call), keyed by item id. */
+  | { kind: "command"; id: string; command: string; status: CommandStatus }
+  /** Streamed reasoning summary (the agent's "thinking"). */
+  | { kind: "reasoning"; text: string }
   | { kind: "final"; text: string; usage?: TurnUsage };
 
 interface TurnHandler {
   onDelta: (text: string) => void;
+  onCommand: (id: string, command: string, status: CommandStatus) => void;
+  onReasoning: (text: string) => void;
   onFinal: (text: string) => void;
   onUsage: (usage: TurnUsage) => void;
   onDone: () => void;
@@ -143,9 +157,28 @@ export class AppServer {
       case "item/agentMessage/delta":
         h.onDelta(params.delta ?? "");
         break;
-      case "item/completed":
-        if (params.item?.type === "agentMessage") h.onFinal(params.item.text ?? "");
+      case "item/reasoning/summaryTextDelta":
+        h.onReasoning(params.delta ?? "");
         break;
+      case "item/started":
+      case "item/updated":
+      case "item/completed": {
+        // app-server v2 item types are camelCase: commandExecution, agentMessage, fileChange.
+        const it = params.item;
+        if (it?.type === "commandExecution") {
+          const status: CommandStatus =
+            it.status === "failed" ? "failed" : it.status === "completed" ? "done" : "running";
+          h.onCommand(it.id, it.command ?? "", status);
+        } else if (it?.type === "fileChange" && msg.method === "item/completed") {
+          for (const c of it.changes ?? []) {
+            const name = String(c.path ?? "").split("/").pop() || "file";
+            h.onCommand(`${it.id}:${name}`, `edit ${name}`, "done");
+          }
+        } else if (msg.method === "item/completed" && it?.type === "agentMessage") {
+          h.onFinal(it.text ?? "");
+        }
+        break;
+      }
       case "thread/tokenUsage/updated": {
         const last = params.tokenUsage?.last;
         if (last) {
@@ -196,14 +229,15 @@ export class AppServer {
     if (isNew) yield { kind: "session", threadId };
 
     // Bridge push-based notifications into this pull-based generator.
-    const queue: Array<{ kind: "delta"; text: string } | { kind: "_end" }> = [];
+    type QueueItem = Exclude<TurnEvent, { kind: "session" | "final" }> | { kind: "_end" };
+    const queue: QueueItem[] = [];
     let wake: (() => void) | null = null;
     let acc = "";
     let finalText: string | null = null;
     let usage: TurnUsage | undefined;
     let error: string | null = null;
 
-    const push = (item: (typeof queue)[number]) => {
+    const push = (item: QueueItem) => {
       queue.push(item);
       wake?.();
       wake = null;
@@ -214,6 +248,8 @@ export class AppServer {
         acc += t;
         push({ kind: "delta", text: t });
       },
+      onCommand: (id, command, status) => push({ kind: "command", id, command, status }),
+      onReasoning: (text) => push({ kind: "reasoning", text }),
       onFinal: (t) => {
         finalText = t;
       },

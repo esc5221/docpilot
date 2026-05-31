@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { DocxEditor, type DocxEditorRef, LocaleProvider } from "@eigenpal/docx-editor-react";
 import "@eigenpal/docx-editor-react/styles.css";
+import "./design/docx-skin.css";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { useResizablePanel } from "./ui/useResizablePanel";
 import { buildExtensions } from "./editor/extensions";
