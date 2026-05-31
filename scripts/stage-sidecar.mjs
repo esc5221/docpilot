@@ -13,8 +13,10 @@
 
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("..", import.meta.url).pathname;
+// fileURLToPath (not .pathname) — Windows file URLs are `/C:/...`, which breaks path joins.
+const root = fileURLToPath(new URL("..", import.meta.url));
 const sidecar = join(root, "sidecar");
 const dist = join(sidecar, "dist", "index.js");
 const out = join(sidecar, "bundle", "sidecar");
