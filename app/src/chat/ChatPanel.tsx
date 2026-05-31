@@ -4,12 +4,18 @@ import { getAgent } from "../agent/agentSingleton";
 import type { EditorAdapter } from "../editor/EditorAdapter";
 import { useDocumentStore } from "../documents/documentStore";
 import { useSelectionStore } from "../state/selectionStore";
-import { type ChatMessage, useSessionsStore } from "../state/sessionsStore";
+import { type ChatMessage, type ChatStep, useSessionsStore } from "../state/sessionsStore";
 
 type Mode = "ask" | "edit";
 
 interface Props {
   adapter: EditorAdapter | null;
+}
+
+/** Strip the "/bin/zsh -lc '...'" wrapper Codex uses, for a clean command line. */
+function prettyCommand(cmd: string): string {
+  const m = cmd.match(/^(?:\S*\/)?(?:bash|sh|zsh)\s+-lc\s+(['"])([\s\S]*)\1$/);
+  return (m ? m[2] : cmd).trim();
 }
 
 export function ChatPanel({ adapter }: Props) {
@@ -46,7 +52,13 @@ export function ChatPanel({ adapter }: Props) {
   const appendLast = (delta: string) => {
     const next = [...curMessages()];
     const last = next[next.length - 1];
-    next[next.length - 1] = { role: "assistant", text: last.text + delta };
+    next[next.length - 1] = { ...last, role: "assistant", text: last.text + delta };
+    store().setMessages(next);
+  };
+  /** Patch the last (assistant) message in place. */
+  const patchLast = (fn: (m: ChatMessage) => ChatMessage) => {
+    const next = [...curMessages()];
+    next[next.length - 1] = fn(next[next.length - 1]);
     store().setMessages(next);
   };
   const scrollDown = () =>
@@ -86,16 +98,35 @@ export function ChatPanel({ adapter }: Props) {
     const agent = await getAgent();
     let progress = "";
     for await (const ev of agent.agentEdit(req)) {
-      if (ev.type === "progress") {
+      if (ev.type === "command") {
+        patchLast((m) => {
+          const steps = [...(m.steps ?? [])];
+          const i = steps.findIndex((s) => s.kind === "command" && s.id === ev.id);
+          const step: ChatStep = { kind: "command", id: ev.id, text: ev.command, status: ev.status };
+          if (i >= 0) steps[i] = step;
+          else steps.push(step);
+          return { ...m, steps };
+        });
+      } else if (ev.type === "reasoning") {
+        patchLast((m) => {
+          const steps = [...(m.steps ?? [])];
+          const last = steps[steps.length - 1];
+          if (last?.kind === "reasoning")
+            steps[steps.length - 1] = { ...last, text: last.text + ev.text };
+          else steps.push({ kind: "reasoning", text: ev.text });
+          return { ...m, steps };
+        });
+      } else if (ev.type === "progress") {
         progress += ev.text;
-        replaceLast(progress);
+        patchLast((m) => ({ ...m, text: progress }));
       } else if (ev.type === "done") {
         await adapter.reload({ text: ev.text, docBase64: ev.docBase64 });
         useDocumentStore.getState().setDirty(true);
-        replaceLast(`✏️ ${ev.summary}`);
+        patchLast((m) => ({ ...m, text: `✏️ ${ev.summary}` }));
       } else if (ev.type === "error") {
-        replaceLast(`⚠ ${ev.message}`);
+        patchLast((m) => ({ ...m, text: `⚠ ${ev.message}` }));
       }
+      scrollDown();
     }
   };
 
@@ -195,7 +226,35 @@ export function ChatPanel({ adapter }: Props) {
         )}
         {messages.map((m, i) => (
           <div key={i} className={`dp-msg dp-msg-${m.role}`}>
-            {m.text || (busy && i === messages.length - 1 ? "…" : "")}
+            {m.steps && m.steps.length > 0 && (
+              <div className="dp-steps">
+                {m.steps.map((s, j) =>
+                  s.kind === "command" ? (
+                    <div key={j} className={`dp-step dp-step-cmd is-${s.status}`}>
+                      <span className="dp-step-icon">
+                        {s.status === "running" ? (
+                          <span className="dp-spinner-xs" />
+                        ) : s.status === "failed" ? (
+                          "✗"
+                        ) : (
+                          "✓"
+                        )}
+                      </span>
+                      <code>{prettyCommand(s.text)}</code>
+                    </div>
+                  ) : (
+                    <div key={j} className="dp-step dp-step-reason">
+                      {s.text}
+                    </div>
+                  ),
+                )}
+              </div>
+            )}
+            {m.text ? (
+              <div className="dp-msg-text">{m.text}</div>
+            ) : busy && i === messages.length - 1 && !(m.steps && m.steps.length) ? (
+              "…"
+            ) : null}
           </div>
         ))}
       </div>

@@ -1,9 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 
+/** A tool-call or reasoning step the agent emitted while editing (Codex-style). */
+export interface ChatStep {
+  kind: "command" | "reasoning";
+  text: string;
+  /** command only: stable id (for in-place status updates) + run state. */
+  id?: string;
+  status?: "running" | "done" | "failed";
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   text: string;
+  /** Agent timeline (edit turns): shell commands + reasoning, in order. */
+  steps?: ChatStep[];
 }
 
 export interface ChatSession {
