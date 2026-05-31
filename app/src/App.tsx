@@ -10,6 +10,7 @@ import { TiptapAdapter } from "./editor/TiptapAdapter";
 import { DocxAdapter } from "./editor/DocxAdapter";
 import type { EditorAdapter } from "./editor/EditorAdapter";
 import { ChatPanel } from "./chat/ChatPanel";
+import { SystemBanner } from "./system/SystemBanner";
 import { useDocumentStore } from "./documents/documentStore";
 import { useSelectionStore } from "./state/selectionStore";
 import {
@@ -128,6 +129,7 @@ export default function App() {
 
   return (
     <div className="dp-root">
+      <SystemBanner />
       <header className="dp-toolbar">
         <div className="dp-brand">docpilot</div>
         <div className="dp-title">

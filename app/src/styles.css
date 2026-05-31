@@ -776,3 +776,30 @@ body {
     transform: translateY(0) scale(1);
   }
 }
+
+/* ── System banner (onboarding / update) ─────────────────────────────────── */
+.dp-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: var(--surface-overlay);
+  border-bottom: 1px solid var(--border-default);
+  flex: 0 0 auto;
+}
+.dp-banner-warn {
+  background: var(--accent-soft);
+  border-bottom-color: var(--accent-ring);
+}
+.dp-banner .dp-btn {
+  margin-left: auto;
+}
+.dp-banner code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--surface-sunken);
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+}

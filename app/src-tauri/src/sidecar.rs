@@ -35,12 +35,32 @@ impl SidecarState {
 }
 
 /// Spawn `node <entry>` and block until the handshake line is parsed.
-pub fn spawn(node_bin: &str, entry: &str) -> Result<SidecarState, String> {
-    let mut child = Command::new(node_bin)
-        .arg(entry)
+///
+/// `codex` is the user's codex binary (passed to the sidecar via DOCPILOT_CODEX)
+/// and `node_dir` is prepended to PATH so codex's own `node` subprocesses (the
+/// agent-edit scripts) resolve the bundled node.
+pub fn spawn(
+    node_bin: &str,
+    entry: &str,
+    codex: Option<&str>,
+    node_dir: Option<&str>,
+) -> Result<SidecarState, String> {
+    let mut cmd = Command::new(node_bin);
+    cmd.arg(entry)
         .env("DOCPILOT_PORT", "0") // ephemeral port; real one comes back in handshake
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    if let Some(cx) = codex {
+        cmd.env("DOCPILOT_CODEX", cx);
+    }
+    if let Some(nd) = node_dir {
+        let existing = std::env::var("PATH").unwrap_or_default();
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        cmd.env("PATH", format!("{nd}{sep}{existing}"));
+    }
+
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("failed to spawn sidecar ({node_bin} {entry}): {e}"))?;
 

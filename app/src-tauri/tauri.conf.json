@@ -32,6 +32,19 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "externalBin": ["binaries/node"],
+    "resources": {
+      "../../sidecar/bundle/sidecar/": "sidecar/"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERCMDU1N0M3NUY1M0RDNTQKUldSVTNGTmZ4MWNGMjIzc2JqbGJvV1RFMm5JVWExYVFuNy9sZ0xjeXRwdE9CTjVsZlUyRlI2cTAK",
+      "endpoints": [
+        "https://github.com/esc5221/docpilot/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

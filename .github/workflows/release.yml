@@ -1,0 +1,95 @@
+name: release
+
+# Cut a release by pushing a tag:  git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-14 # Apple Silicon
+            target: aarch64-apple-darwin
+            node_url: https://nodejs.org/dist/v22.14.0/node-v22.14.0-darwin-arm64.tar.gz
+            node_bin: node-aarch64-apple-darwin
+            args: "--target aarch64-apple-darwin"
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            node_url: https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x64.zip
+            node_bin: node-x86_64-pc-windows-msvc.exe
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "app/src-tauri -> target"
+
+      - name: Install deps
+        run: |
+          cd app && npm install
+          cd ../sidecar && npm install
+
+      - name: Build + stage sidecar
+        run: |
+          cd sidecar && npm run build
+          cd .. && node scripts/stage-sidecar.mjs
+
+      # Bundle the official, self-contained node binary for this platform.
+      - name: Fetch node binary (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p app/src-tauri/binaries
+          curl -sL "${{ matrix.node_url }}" -o /tmp/node.tgz
+          tar xzf /tmp/node.tgz -C /tmp
+          cp /tmp/node-v22.14.0-darwin-arm64/bin/node "app/src-tauri/binaries/${{ matrix.node_bin }}"
+          chmod +x "app/src-tauri/binaries/${{ matrix.node_bin }}"
+
+      - name: Fetch node binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force app/src-tauri/binaries | Out-Null
+          Invoke-WebRequest "${{ matrix.node_url }}" -OutFile $env:TEMP\node.zip
+          Expand-Archive $env:TEMP\node.zip -DestinationPath $env:TEMP\node -Force
+          Copy-Item "$env:TEMP\node\node-v22.14.0-win-x64\node.exe" "app/src-tauri/binaries/${{ matrix.node_bin }}"
+
+      - name: Build, sign & release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater signing (required for auto-update artifacts).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS code signing + notarization (used only if these secrets exist).
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: app
+          tagName: ${{ github.ref_name }}
+          releaseName: "docpilot ${{ github.ref_name }}"
+          releaseBody: "See the assets to download and install."
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

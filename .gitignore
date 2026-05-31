@@ -15,3 +15,7 @@ app/src-tauri/gen/
 # Editor
 .vscode/
 .idea/
+
+# Packaging (generated)
+sidecar/bundle/
+app/src-tauri/binaries/

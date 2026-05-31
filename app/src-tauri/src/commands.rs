@@ -32,6 +32,34 @@ pub fn sidecar_info(sidecar: State<SidecarState>) -> SidecarInfo {
     sidecar.info()
 }
 
+#[derive(serde::Serialize)]
+pub struct CodexStatus {
+    /// Path to the located codex binary, or null if not installed.
+    pub path: Option<String>,
+    /// Whether the user is signed in (ChatGPT auth on disk).
+    pub logged_in: bool,
+}
+
+/// Report whether codex is installed and signed in (drives first-run onboarding).
+#[tauri::command]
+pub fn codex_status() -> CodexStatus {
+    CodexStatus {
+        path: crate::runtime::find_codex(),
+        logged_in: crate::runtime::codex_logged_in(),
+    }
+}
+
+/// Kick off `codex login` (opens a browser for the ChatGPT OAuth flow).
+#[tauri::command]
+pub fn codex_login() -> Result<(), String> {
+    let codex = crate::runtime::find_codex().ok_or_else(|| "codex not found".to_string())?;
+    std::process::Command::new(codex)
+        .arg("login")
+        .spawn()
+        .map_err(|e| format!("failed to start codex login: {e}"))?;
+    Ok(())
+}
+
 /// Surface webview-side errors/logs into the terminal where `tauri dev` runs.
 #[tauri::command]
 pub fn log_frontend(message: String) {
