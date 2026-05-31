@@ -1,9 +1,8 @@
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { Markdown } from "tiptap-markdown";
-import { PendingHighlight } from "./PendingHighlight";
 
-/** The editor's extension stack. Markdown in/out + the AI target highlight. */
+/** The editor's extension stack. Markdown in/out. */
 export function buildExtensions() {
   return [
     StarterKit,
@@ -14,8 +13,7 @@ export function buildExtensions() {
       transformPastedText: true,
     }),
     Placeholder.configure({
-      placeholder: "여기에 글을 쓰거나 .md 파일을 열어보세요. 문장을 선택하고 ⌘K.",
+      placeholder: "Start writing, or open a .md file.",
     }),
-    PendingHighlight,
   ];
 }

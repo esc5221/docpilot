@@ -44,15 +44,24 @@ interface TurnHandler {
   onError: (message: string) => void;
 }
 
+interface ThreadOpts {
+  sandbox?: "read-only" | "workspace-write" | "danger-full-access";
+  approvalPolicy?: "never" | "on-request" | "on-failure" | "untrusted";
+  /** Working directory for the turn (used by agentic file edits). */
+  cwd?: string;
+}
+
 interface RunTurnArgs {
   /** Existing thread id to resume; omit to start a new thread. */
   sessionId?: string;
   prompt: string;
   /** Optional JSON Schema to constrain the final assistant message. */
   outputSchema?: unknown;
+  /** Per-turn thread options (sandbox, cwd). Defaults to read-only. */
+  threadOpts?: ThreadOpts;
 }
 
-const THREAD_OPTS = { sandbox: "read-only", approvalPolicy: "never" } as const;
+const DEFAULT_THREAD_OPTS: ThreadOpts = { sandbox: "read-only", approvalPolicy: "never" };
 
 export class AppServer {
   private child: ChildProcessWithoutNullStreams;
@@ -156,23 +165,26 @@ export class AppServer {
   }
 
   /** Resume `sessionId`, or start a fresh thread; returns the active thread id. */
-  private async openThread(sessionId?: string): Promise<{ threadId: string; isNew: boolean }> {
+  private async openThread(
+    sessionId: string | undefined,
+    opts: ThreadOpts,
+  ): Promise<{ threadId: string; isNew: boolean }> {
     if (sessionId) {
       try {
-        await this.rpc("thread/resume", { threadId: sessionId, ...THREAD_OPTS });
+        await this.rpc("thread/resume", { threadId: sessionId, ...opts });
         return { threadId: sessionId, isNew: false };
       } catch {
         // Thread gone / unloadable — fall through and start fresh.
       }
     }
-    const res = await this.rpc<{ thread: { id: string } }>("thread/start", THREAD_OPTS);
+    const res = await this.rpc<{ thread: { id: string } }>("thread/start", opts);
     return { threadId: res.thread.id, isNew: true };
   }
 
   /** Run one turn, streaming token deltas. */
-  async *runTurn({ sessionId, prompt, outputSchema }: RunTurnArgs): AsyncGenerator<TurnEvent> {
+  async *runTurn({ sessionId, prompt, outputSchema, threadOpts }: RunTurnArgs): AsyncGenerator<TurnEvent> {
     await this.ready;
-    const { threadId, isNew } = await this.openThread(sessionId);
+    const { threadId, isNew } = await this.openThread(sessionId, threadOpts ?? DEFAULT_THREAD_OPTS);
     if (isNew) yield { kind: "session", threadId };
 
     // Bridge push-based notifications into this pull-based generator.

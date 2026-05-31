@@ -1,39 +1,12 @@
 import type { Editor } from "@tiptap/react";
-import type { EditorAdapter, EditTarget, SelRange } from "./EditorAdapter";
+import type { DocSnapshot, EditorAdapter } from "./EditorAdapter";
 import { extractContext } from "./context";
-import { pendingKey } from "./PendingHighlight";
 
-/** Adapts a Tiptap (markdown) editor to the inline-edit engine. */
+/** Adapts a Tiptap (markdown) editor to the app's editor contract. */
 export class TiptapAdapter implements EditorAdapter {
   readonly kind = "markdown" as const;
 
   constructor(private readonly editor: Editor) {}
-
-  captureSelection(): EditTarget | null {
-    const { from, to } = this.editor.state.selection;
-    if (from === to) return null;
-
-    const text = this.editor.state.doc.textBetween(from, to, "\n", " ");
-    const coords = this.editor.view.coordsAtPos(from);
-    return {
-      range: { from, to },
-      text,
-      context: extractContext(this.editor, from, to),
-      anchor: { x: coords.left, y: coords.bottom },
-    };
-  }
-
-  applyReplacement(range: SelRange, text: string): void {
-    this.editor
-      .chain()
-      .focus()
-      .insertContentAt({ from: range.from, to: range.to }, text)
-      .run();
-  }
-
-  setPending(range: SelRange | null): void {
-    this.editor.view.dispatch(this.editor.state.tr.setMeta(pendingKey, range));
-  }
 
   docContext() {
     const ctx = extractContext(this.editor, 0, 0);
@@ -47,6 +20,14 @@ export class TiptapAdapter implements EditorAdapter {
     };
     this.editor.on("selectionUpdate", handler);
     return () => this.editor.off("selectionUpdate", handler);
+  }
+
+  async collectDoc(): Promise<DocSnapshot> {
+    return { text: this.editor.storage.markdown.getMarkdown() };
+  }
+
+  async reload(result: DocSnapshot): Promise<void> {
+    if (result.text != null) this.editor.commands.setContent(result.text, true);
   }
 
   focus(): void {

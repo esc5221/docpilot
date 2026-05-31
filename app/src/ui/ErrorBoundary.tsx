@@ -31,10 +31,10 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.error) {
       return (
         <div className="dp-boundary">
-          <div className="dp-boundary-title">⚠ {this.props.label} 오류</div>
+          <div className="dp-boundary-title">⚠ {this.props.label} error</div>
           <pre className="dp-boundary-msg">{this.state.error.message}</pre>
           <button className="dp-btn" onClick={() => this.setState({ error: null })}>
-            다시 시도
+            Retry
           </button>
         </div>
       );

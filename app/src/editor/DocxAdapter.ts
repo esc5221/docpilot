@@ -1,51 +1,16 @@
 import type { DocxEditorRef } from "@eigenpal/docx-editor-react";
-import type { EditorAdapter, EditTarget, SelRange } from "./EditorAdapter";
+import type { DocSnapshot, EditorAdapter } from "./EditorAdapter";
+import { base64ToBytes, bytesToBase64 } from "../util/base64";
 
 /**
- * Adapts the eigenpal docx-editor to the same inline-edit engine the markdown
- * path uses. It shares the prosemirror-* core with Tiptap, so positions and
- * transactions work identically — we just reach them through the docx ref.
+ * Adapts the eigenpal docx-editor to the app's editor contract. Snapshots go
+ * through the editor's own save() (full-fidelity OOXML) and edits come back via
+ * loadDocumentBuffer — so the agentic edit round-trips through the live engine.
  */
 export class DocxAdapter implements EditorAdapter {
   readonly kind = "docx" as const;
 
   constructor(private readonly ref: DocxEditorRef) {}
-
-  private view() {
-    return this.ref.getEditorRef()?.getView() ?? null;
-  }
-
-  captureSelection(): EditTarget | null {
-    const info = this.ref.getSelectionInfo();
-    const view = this.view();
-    if (!info || !info.selectedText || !view) return null;
-
-    const { from, to } = view.state.selection;
-    if (from === to) return null;
-
-    const coords = view.coordsAtPos(from);
-    return {
-      range: { from, to },
-      text: info.selectedText,
-      context: {
-        before: info.before || undefined,
-        after: info.after || undefined,
-      },
-      anchor: { x: coords.left, y: coords.bottom },
-    };
-  }
-
-  applyReplacement(range: SelRange, text: string): void {
-    const view = this.view();
-    if (!view) return;
-    // Direct, undoable edit: replace the captured range with plain text.
-    view.dispatch(view.state.tr.insertText(text, range.from, range.to));
-    view.focus();
-  }
-
-  setPending(): void {
-    // No in-editor highlight for docx yet; the popover diff carries the intent.
-  }
 
   docContext() {
     // Grounding for chat is optional here; the message itself carries intent.
@@ -56,6 +21,15 @@ export class DocxAdapter implements EditorAdapter {
     return this.ref.onSelectionChange(() => {
       cb(this.ref.getSelectionInfo()?.selectedText ?? "");
     });
+  }
+
+  async collectDoc(): Promise<DocSnapshot> {
+    const buffer = await this.ref.save();
+    return { docBase64: buffer ? bytesToBase64(new Uint8Array(buffer)) : "" };
+  }
+
+  async reload(result: DocSnapshot): Promise<void> {
+    if (result.docBase64) await this.ref.loadDocumentBuffer(base64ToBytes(result.docBase64));
   }
 
   focus(): void {

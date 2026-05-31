@@ -9,6 +9,7 @@
     "dev": "bun build src/index.ts --target node --outdir dist --external @openai/codex-sdk && node dist/index.js"
   },
   "dependencies": {
+    "@eigenpal/docx-editor-core": "^1.1.0",
     "@openai/codex-sdk": "latest"
   }
 }

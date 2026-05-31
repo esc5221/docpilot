@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AgentEditRequest,
+  AgentEditStreamEvent,
   ChatRequest,
   ChatStreamEvent,
   EditRequest,
@@ -33,6 +35,10 @@ export class AgentClient {
 
   chat(req: ChatRequest, signal?: AbortSignal): AsyncGenerator<ChatStreamEvent> {
     return this.stream<ChatStreamEvent>("/chat", req, signal);
+  }
+
+  agentEdit(req: AgentEditRequest, signal?: AbortSignal): AsyncGenerator<AgentEditStreamEvent> {
+    return this.stream<AgentEditStreamEvent>("/agent-edit", req, signal);
   }
 
   private async *stream<T>(

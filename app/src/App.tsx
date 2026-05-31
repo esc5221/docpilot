@@ -8,8 +8,6 @@ import { buildExtensions } from "./editor/extensions";
 import { TiptapAdapter } from "./editor/TiptapAdapter";
 import { DocxAdapter } from "./editor/DocxAdapter";
 import type { EditorAdapter } from "./editor/EditorAdapter";
-import { EditPopover } from "./inline-edit/EditPopover";
-import { useInlineEdit } from "./inline-edit/useInlineEdit";
 import { ChatPanel } from "./chat/ChatPanel";
 import { useDocumentStore } from "./documents/documentStore";
 import { useSelectionStore } from "./state/selectionStore";
@@ -23,7 +21,7 @@ import {
 import { logToShell } from "./diagnostics";
 
 function basename(path: string | null): string {
-  if (!path) return "제목 없음";
+  if (!path) return "Untitled";
   return path.split(/[\\/]/).pop() ?? path;
 }
 
@@ -55,7 +53,6 @@ export default function App() {
     return editor ? new TiptapAdapter(editor) : null;
   }, [kind, docxReady, editor]);
 
-  const inline = useInlineEdit(adapter);
   const panel = useResizablePanel({ initial: 384, min: 300, max: 680, storageKey: "dp.panelWidth" });
 
   // Mirror the editor's selection into the chat context store (Cursor-style).
@@ -115,21 +112,18 @@ export default function App() {
     }
   }, [kind, editor, path, setDirty, setPath]);
 
-  // Global shortcuts: ⌘K inline edit, ⌘S save.
+  // Global shortcut: ⌘S save.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        inline.begin();
-      } else if (mod && e.key.toLowerCase() === "s") {
+      if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
         void handleSave();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [inline, handleSave]);
+  }, [handleSave]);
 
   return (
     <div className="dp-root">
@@ -137,14 +131,14 @@ export default function App() {
         <div className="dp-brand">docpilot</div>
         <div className="dp-title">
           {basename(path)}
-          {dirty && <span className="dp-dot" title="저장되지 않음" />}
+          {dirty && <span className="dp-dot" title="Unsaved" />}
         </div>
         <div className="dp-tools">
           <button className="dp-btn" onClick={() => void handleOpen()}>
-            열기
+            Open
           </button>
           <button className="dp-btn dp-primary" onClick={() => void handleSave()}>
-            저장
+            Save
           </button>
         </div>
       </header>
@@ -152,7 +146,7 @@ export default function App() {
       <main className="dp-main">
         <section className="dp-editor-wrap" data-kind={kind}>
           {kind === "docx" ? (
-            <ErrorBoundary label="docx 편집기">
+            <ErrorBoundary label="docx editor">
               <LocaleProvider>
                 <DocxEditor
                   ref={setDocxRef}
@@ -181,13 +175,6 @@ export default function App() {
           <ChatPanel adapter={adapter} />
         </aside>
       </main>
-
-      <EditPopover
-        state={inline.state}
-        onSubmit={inline.submit}
-        onAccept={inline.accept}
-        onCancel={inline.cancel}
-      />
     </div>
   );
 }

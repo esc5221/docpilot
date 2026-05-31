@@ -15,8 +15,15 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { ChatRequest, EditRequest } from "../../packages/shared/src/index";
+import type {
+  AgentEditRequest,
+  ChatRequest,
+  EditRequest,
+  PlanRequest,
+} from "../../packages/shared/src/index";
 import { chat, edit } from "./codexHost";
+import { plan } from "./planHost";
+import { agentEdit } from "./agentHost";
 
 interface ServeConfig {
   port: number;
@@ -96,6 +103,18 @@ export function serve({ port, token }: ServeConfig): Promise<RunningServer> {
     if (req.method === "POST" && url.pathname === "/chat") {
       const payload = JSON.parse(await readBody(req)) as ChatRequest;
       await pipeSse(res, chat(payload));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/plan") {
+      const payload = JSON.parse(await readBody(req)) as PlanRequest;
+      await pipeSse(res, plan(payload));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/agent-edit") {
+      const payload = JSON.parse(await readBody(req)) as AgentEditRequest;
+      await pipeSse(res, agentEdit(payload));
       return;
     }
 
