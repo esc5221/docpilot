@@ -40,6 +40,8 @@ export interface ChatRequest {
   context?: DocContext;
   /** Text the user selected in the editor, attached as a context pill. */
   selection?: string;
+  /** PNG of the current page (base64), for Codex vision. */
+  imageBase64?: string;
 }
 
 // ── Structured document edits (the AI plans, the app applies) ────────────────
@@ -96,6 +98,8 @@ export interface AgentEditRequest {
   text?: string;
   /** docx bytes, base64-encoded (when docKind === "docx"). */
   docBase64?: string;
+  /** PNG of the current page (base64), for Codex vision. */
+  imageBase64?: string;
 }
 
 export type AgentEditStreamEvent =

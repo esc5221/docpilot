@@ -1,3 +1,4 @@
+import html2canvas from "html2canvas";
 import type { DocxEditorRef } from "@eigenpal/docx-editor-react";
 import type { DocSnapshot, EditorAdapter } from "./EditorAdapter";
 import { base64ToBytes, bytesToBase64 } from "../util/base64";
@@ -32,7 +33,23 @@ export class DocxAdapter implements EditorAdapter {
     if (result.docBase64) await this.ref.loadDocumentBuffer(base64ToBytes(result.docBase64));
   }
 
+  /** Screenshot the current page element (docx renders to DOM, not canvas). */
+  async capturePageImage(): Promise<string | null> {
+    const page = this.ref.getCurrentPage?.() ?? 1;
+    const el =
+      (document.querySelector(`[data-page-number="${page}"]`) as HTMLElement | null) ??
+      (document.querySelector("[data-page-number]") as HTMLElement | null);
+    if (!el) return null;
+    try {
+      const canvas = await html2canvas(el, { backgroundColor: "#ffffff", scale: 1.5, logging: false });
+      return canvas.toDataURL("image/png").split(",")[1] ?? null;
+    } catch {
+      return null; // capture is best-effort; never block the message
+    }
+  }
+
   focus(): void {
     this.ref.focus();
   }
 }
+

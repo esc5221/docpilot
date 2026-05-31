@@ -48,6 +48,8 @@ pub fn run() {
             commands::write_document_binary,
             commands::get_thread_id,
             commands::set_thread_id,
+            commands::load_sessions,
+            commands::save_sessions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running docpilot");

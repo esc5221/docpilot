@@ -59,6 +59,8 @@ interface RunTurnArgs {
   outputSchema?: unknown;
   /** Per-turn thread options (sandbox, cwd). Defaults to read-only. */
   threadOpts?: ThreadOpts;
+  /** Absolute paths of images to attach to the turn (Codex vision). */
+  imagePaths?: string[];
 }
 
 const DEFAULT_THREAD_OPTS: ThreadOpts = { sandbox: "read-only", approvalPolicy: "never" };
@@ -182,7 +184,13 @@ export class AppServer {
   }
 
   /** Run one turn, streaming token deltas. */
-  async *runTurn({ sessionId, prompt, outputSchema, threadOpts }: RunTurnArgs): AsyncGenerator<TurnEvent> {
+  async *runTurn({
+    sessionId,
+    prompt,
+    outputSchema,
+    threadOpts,
+    imagePaths,
+  }: RunTurnArgs): AsyncGenerator<TurnEvent> {
     await this.ready;
     const { threadId, isNew } = await this.openThread(sessionId, threadOpts ?? DEFAULT_THREAD_OPTS);
     if (isNew) yield { kind: "session", threadId };
@@ -219,7 +227,8 @@ export class AppServer {
       },
     });
 
-    const input = [{ type: "text", text: prompt, text_elements: [] }];
+    const input: unknown[] = [{ type: "text", text: prompt, text_elements: [] }];
+    for (const path of imagePaths ?? []) input.push({ type: "localImage", path });
     this.rpc("turn/start", { threadId, input, ...(outputSchema ? { outputSchema } : {}) }).catch(
       (e) => {
         error = e instanceof Error ? e.message : String(e);

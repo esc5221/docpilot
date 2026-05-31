@@ -29,5 +29,8 @@ export interface EditorAdapter {
   /** Load an edited document back into the editor. */
   reload(result: DocSnapshot): Promise<void>;
 
+  /** Capture the current page as a PNG (base64, no data-URL prefix) for vision. */
+  capturePageImage?(): Promise<string | null>;
+
   focus(): void;
 }

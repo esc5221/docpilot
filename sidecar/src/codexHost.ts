@@ -6,6 +6,9 @@
  * approvals, and prompts that forbid tool use — we only want rewritten text.
  */
 
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   ChatRequest,
   ChatStreamEvent,
@@ -77,10 +80,20 @@ export async function* edit(req: EditRequest): AsyncGenerator<EditStreamEvent> {
 
 /** Stream a side-panel chat reply. */
 export async function* chat(req: ChatRequest): AsyncGenerator<ChatStreamEvent> {
+  // Stage an attached page image to a temp file (Codex needs a path).
+  let imageDir: string | undefined;
+  const imagePaths: string[] = [];
+  if (req.imageBase64) {
+    imageDir = mkdtempSync(join(tmpdir(), "docpilot-img-"));
+    const path = join(imageDir, "page.png");
+    writeFileSync(path, Buffer.from(req.imageBase64, "base64"));
+    imagePaths.push(path);
+  }
   try {
     for await (const e of appServer().runTurn({
       sessionId: req.sessionId,
       prompt: buildChatPrompt(req),
+      imagePaths,
     })) {
       if (e.kind === "session") yield { type: "session", sessionId: e.threadId };
       else if (e.kind === "delta") yield { type: "delta", text: e.text };
@@ -88,5 +101,7 @@ export async function* chat(req: ChatRequest): AsyncGenerator<ChatStreamEvent> {
     }
   } catch (err) {
     yield { type: "error", message: err instanceof Error ? err.message : String(err) };
+  } finally {
+    if (imageDir) rmSync(imageDir, { recursive: true, force: true });
   }
 }

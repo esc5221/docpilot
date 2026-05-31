@@ -1,10 +1,30 @@
 //! Tauri commands exposed to the frontend.
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::sidecar::{SidecarInfo, SidecarState};
 use crate::store::ThreadStore;
+
+fn sessions_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("sessions.json"))
+}
+
+/// Load the persisted chat sessions blob (JSON string), or "" if none.
+#[tauri::command]
+pub fn load_sessions(app: AppHandle) -> Result<String, String> {
+    let path = sessions_path(&app)?;
+    Ok(std::fs::read_to_string(path).unwrap_or_default())
+}
+
+/// Persist the chat sessions blob (whole list as a JSON string).
+#[tauri::command]
+pub fn save_sessions(app: AppHandle, data: String) -> Result<(), String> {
+    let path = sessions_path(&app)?;
+    std::fs::write(path, data).map_err(|e| e.to_string())
+}
 
 /// Where to reach the agent sidecar (port + bearer token).
 #[tauri::command]

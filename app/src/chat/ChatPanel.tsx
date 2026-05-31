@@ -1,70 +1,79 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentEditRequest, ChatRequest } from "@docpilot/shared";
 import { getAgent } from "../agent/agentSingleton";
 import type { EditorAdapter } from "../editor/EditorAdapter";
 import { useDocumentStore } from "../documents/documentStore";
 import { useSelectionStore } from "../state/selectionStore";
+import { type ChatMessage, useSessionsStore } from "../state/sessionsStore";
 
 type Mode = "ask" | "edit";
-
-interface Message {
-  role: "user" | "assistant";
-  text: string;
-}
 
 interface Props {
   adapter: EditorAdapter | null;
 }
 
 export function ChatPanel({ adapter }: Props) {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<Mode>("edit");
   const [busy, setBusy] = useState(false);
+  const [listOpen, setListOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const selection = useSelectionStore((s) => s.text);
   const clearSelection = useSelectionStore((s) => s.clear);
 
-  const replaceLast = (text: string) =>
-    setMessages((m) => {
-      const next = [...m];
-      next[next.length - 1] = { role: "assistant", text };
-      return next;
-    });
+  const sessions = useSessionsStore((s) => s.sessions);
+  const currentId = useSessionsStore((s) => s.currentId);
+  const current = sessions.find((s) => s.id === currentId);
+  const messages = current?.messages ?? [];
 
-  const appendLast = (delta: string) =>
-    setMessages((m) => {
-      const next = [...m];
-      next[next.length - 1] = { role: "assistant", text: next[next.length - 1].text + delta };
-      return next;
-    });
+  useEffect(() => {
+    void useSessionsStore.getState().load();
+  }, []);
 
+  // ── message helpers (operate on the current session via the store) ────────
+  const store = () => useSessionsStore.getState();
+  const curMessages = (): ChatMessage[] => {
+    const st = store();
+    return st.sessions.find((s) => s.id === st.currentId)?.messages ?? [];
+  };
+  const replaceLast = (text: string) => {
+    const next = [...curMessages()];
+    next[next.length - 1] = { role: "assistant", text };
+    store().setMessages(next);
+  };
+  const appendLast = (delta: string) => {
+    const next = [...curMessages()];
+    const last = next[next.length - 1];
+    next[next.length - 1] = { role: "assistant", text: last.text + delta };
+    store().setMessages(next);
+  };
   const scrollDown = () =>
     requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }));
 
-  const runAsk = async (text: string) => {
-    const { threadId, bindThreadId } = useDocumentStore.getState();
+  // ── turns ─────────────────────────────────────────────────────────────────
+  const runAsk = async (text: string, image: string | null) => {
     const req: ChatRequest = {
-      sessionId: threadId ?? undefined,
+      sessionId: store().sessions.find((s) => s.id === store().currentId)?.threadId ?? undefined,
       message: text,
       context: adapter?.docContext(),
       selection: selection || undefined,
+      imageBase64: image ?? undefined,
     };
     const agent = await getAgent();
     for await (const ev of agent.chat(req)) {
-      if (ev.type === "session") bindThreadId(ev.sessionId);
+      if (ev.type === "session") store().bindThread(ev.sessionId);
       else if (ev.type === "delta") appendLast(ev.text);
       else if (ev.type === "error") replaceLast(`⚠ ${ev.message}`);
     }
   };
 
-  const runEdit = async (text: string) => {
+  const runEdit = async (text: string, image: string | null) => {
     if (!adapter) {
       replaceLast("Open a document first.");
       return;
     }
-    const { setDirty } = useDocumentStore.getState();
     const doc = await adapter.collectDoc();
     const req: AgentEditRequest = {
       docKind: adapter.kind,
@@ -72,16 +81,17 @@ export function ChatPanel({ adapter }: Props) {
       selection: selection || undefined,
       text: doc.text,
       docBase64: doc.docBase64,
+      imageBase64: image ?? undefined,
     };
     const agent = await getAgent();
     let progress = "";
     for await (const ev of agent.agentEdit(req)) {
       if (ev.type === "progress") {
         progress += ev.text;
-        replaceLast(progress); // Codex narrates as it drives the edit
+        replaceLast(progress);
       } else if (ev.type === "done") {
         await adapter.reload({ text: ev.text, docBase64: ev.docBase64 });
-        setDirty(true);
+        useDocumentStore.getState().setDirty(true);
         replaceLast(`✏️ ${ev.summary}`);
       } else if (ev.type === "error") {
         replaceLast(`⚠ ${ev.message}`);
@@ -94,22 +104,87 @@ export function ChatPanel({ adapter }: Props) {
     if (!text || busy) return;
     setInput("");
     setBusy(true);
-    setMessages((m) => [...m, { role: "user", text }, { role: "assistant", text: "" }]);
+
+    // Title a fresh chat from its first message.
+    const cur = store().sessions.find((s) => s.id === store().currentId);
+    if (cur && cur.title === "New chat") store().rename(cur.id, text.slice(0, 40));
+
+    store().setMessages([...curMessages(), { role: "user", text }, { role: "assistant", text: "" }]);
+
     try {
-      if (mode === "edit") await runEdit(text);
-      else await runAsk(text);
+      const image = adapter?.capturePageImage ? await adapter.capturePageImage() : null;
+      if (mode === "edit") await runEdit(text, image);
+      else await runAsk(text, image);
     } catch (err) {
       replaceLast(`⚠ ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusy(false);
+      store().persist();
       scrollDown();
     }
   };
 
   return (
     <div className="dp-chat-inner">
-      <div className="dp-chat-header">AI</div>
+      {/* Session bar */}
+      <div className="dp-chat-header">
+        <button className="dp-session-current" onClick={() => setListOpen((v) => !v)}>
+          {current?.title ?? "New chat"} <span className="dp-caret">▾</span>
+        </button>
+        <button
+          className="dp-session-new"
+          title="New chat"
+          onClick={() => {
+            store().create();
+            setListOpen(false);
+          }}
+        >
+          +
+        </button>
+      </div>
 
+      {listOpen && (
+        <div className="dp-session-list">
+          {sessions.map((s) => (
+            <div key={s.id} className={`dp-session-item ${s.id === currentId ? "is-on" : ""}`}>
+              {editingId === s.id ? (
+                <input
+                  className="dp-session-rename"
+                  defaultValue={s.title}
+                  autoFocus
+                  onBlur={(e) => {
+                    store().rename(s.id, e.target.value.trim() || "Untitled");
+                    setEditingId(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
+                />
+              ) : (
+                <button
+                  className="dp-session-pick"
+                  onClick={() => {
+                    store().switchTo(s.id);
+                    setListOpen(false);
+                  }}
+                  onDoubleClick={() => setEditingId(s.id)}
+                >
+                  {s.title}
+                </button>
+              )}
+              <button className="dp-session-act" title="Rename" onClick={() => setEditingId(s.id)}>
+                ✎
+              </button>
+              <button className="dp-session-act" title="Delete" onClick={() => store().remove(s.id)}>
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Log */}
       <div className="dp-chat-log" ref={scrollRef}>
         {messages.length === 0 && (
           <div className="dp-chat-empty">
@@ -125,18 +200,13 @@ export function ChatPanel({ adapter }: Props) {
         ))}
       </div>
 
+      {/* Composer */}
       <div className="dp-composer">
         <div className="dp-mode">
-          <button
-            className={`dp-seg ${mode === "edit" ? "is-on" : ""}`}
-            onClick={() => setMode("edit")}
-          >
+          <button className={`dp-seg ${mode === "edit" ? "is-on" : ""}`} onClick={() => setMode("edit")}>
             Edit
           </button>
-          <button
-            className={`dp-seg ${mode === "ask" ? "is-on" : ""}`}
-            onClick={() => setMode("ask")}
-          >
+          <button className={`dp-seg ${mode === "ask" ? "is-on" : ""}`} onClick={() => setMode("ask")}>
             Ask
           </button>
         </div>

@@ -85,8 +85,17 @@ export async function* agentEdit(req: AgentEditRequest): AsyncGenerator<AgentEdi
       writeFileSync(join(work, "AGENTS.md"), markdownGuide(file));
     }
 
+    // Optional page screenshot for visual context.
+    const imagePaths: string[] = [];
+    if (req.imageBase64) {
+      const img = join(work, "page.png");
+      writeFileSync(img, Buffer.from(req.imageBase64, "base64"));
+      imagePaths.push(img);
+    }
+
     const prompt = [
       `Edit ./${file} per the instruction. Read AGENTS.md first and follow it exactly.`,
+      req.imageBase64 ? "An image of the current page is attached for visual context." : "",
       req.selection ? `\nThe user has selected this text (focus your edit here):\n${req.selection}` : "",
       `\n[INSTRUCTION]\n${req.instruction}`,
     ].join("\n");
@@ -95,6 +104,7 @@ export async function* agentEdit(req: AgentEditRequest): AsyncGenerator<AgentEdi
     for await (const ev of appServer().runTurn({
       prompt,
       threadOpts: { sandbox: "workspace-write", approvalPolicy: "never", cwd: work },
+      imagePaths,
     })) {
       if (ev.kind === "delta") yield { type: "progress", text: ev.text };
       else if (ev.kind === "final") summary = ev.text;
