@@ -1,41 +1,19 @@
 /**
- * codexHost — the only place that talks to @openai/codex-sdk.
+ * codexHost — builds prompts and maps Codex turns to the docpilot wire events.
  *
- * Design notes:
- * - Stateless across requests. Each call resumes the thread from
- *   ~/.codex/sessions by id (or starts a fresh one), so the sidecar holds no
- *   session state of its own. Restart-safe by construction.
- * - Codex is driven as a *pure text transformer*: read-only sandbox, no
- *   approvals, no tools, no network. We only want rewritten text back.
- * - Streaming works by diffing the agent_message item's text as it grows.
+ * Transport is the app-server client (see appserver.ts), which gives real token
+ * streaming. Codex is driven as a pure text transformer: read-only sandbox, no
+ * approvals, and prompts that forbid tool use — we only want rewritten text.
  */
 
-import { Codex, type Thread, type ThreadEvent, type ThreadOptions } from "@openai/codex-sdk";
 import type {
   ChatRequest,
   ChatStreamEvent,
   DocContext,
   EditRequest,
   EditStreamEvent,
-  TurnUsage,
 } from "../../packages/shared/src/index";
-
-/** Lock Codex down to "just rewrite the text I give you". */
-const TEXT_ONLY_OPTIONS: ThreadOptions = {
-  sandboxMode: "read-only",
-  approvalPolicy: "never",
-  skipGitRepoCheck: true,
-  networkAccessEnabled: false,
-  webSearchMode: "disabled",
-};
-
-const codex = new Codex();
-
-function newThread(sessionId: string | undefined): Thread {
-  return sessionId
-    ? codex.resumeThread(sessionId, TEXT_ONLY_OPTIONS)
-    : codex.startThread(TEXT_ONLY_OPTIONS);
-}
+import { appServer } from "./appserver";
 
 function renderContext(ctx: DocContext): string {
   const parts: string[] = [];
@@ -81,76 +59,14 @@ function buildChatPrompt(req: ChatRequest): string {
   ].join("\n");
 }
 
-function toUsage(ev: Extract<ThreadEvent, { type: "turn.completed" }>): TurnUsage {
-  return {
-    inputTokens: ev.usage.input_tokens,
-    cachedInputTokens: ev.usage.cached_input_tokens,
-    outputTokens: ev.usage.output_tokens,
-  };
-}
-
-/**
- * Core streaming loop shared by edit() and chat(). Yields:
- *   - { kind: "session", id }   once, for a freshly started thread
- *   - { kind: "delta", text }   incremental agent_message text
- *   - { kind: "final", text, usage }
- * Throws on a fatal stream error.
- */
-async function* streamTurn(
-  prompt: string,
-  sessionId: string | undefined,
-): AsyncGenerator<
-  | { kind: "session"; id: string }
-  | { kind: "delta"; text: string }
-  | { kind: "final"; text: string; usage?: TurnUsage }
-> {
-  const thread = newThread(sessionId);
-  const { events } = await thread.runStreamed(prompt);
-
-  let emitted = ""; // text already sent as deltas
-  let finalText = "";
-  let usage: TurnUsage | undefined;
-
-  for await (const ev of events) {
-    switch (ev.type) {
-      case "thread.started":
-        if (!sessionId) yield { kind: "session", id: ev.thread_id };
-        break;
-
-      case "item.started":
-      case "item.updated":
-      case "item.completed": {
-        const item = ev.item;
-        if (item.type !== "agent_message") break; // ignore reasoning/tools
-        const text = item.text ?? "";
-        if (text.length > emitted.length) {
-          yield { kind: "delta", text: text.slice(emitted.length) };
-          emitted = text;
-        }
-        finalText = text;
-        break;
-      }
-
-      case "turn.completed":
-        usage = toUsage(ev);
-        break;
-
-      case "turn.failed":
-        throw new Error(ev.error.message);
-
-      case "error":
-        throw new Error(ev.message);
-    }
-  }
-
-  yield { kind: "final", text: finalText, usage };
-}
-
 /** Stream a surgical edit of a selection. */
 export async function* edit(req: EditRequest): AsyncGenerator<EditStreamEvent> {
   try {
-    for await (const e of streamTurn(buildEditPrompt(req), req.sessionId)) {
-      if (e.kind === "session") yield { type: "session", sessionId: e.id };
+    for await (const e of appServer().runTurn({
+      sessionId: req.sessionId,
+      prompt: buildEditPrompt(req),
+    })) {
+      if (e.kind === "session") yield { type: "session", sessionId: e.threadId };
       else if (e.kind === "delta") yield { type: "delta", text: e.text };
       else yield { type: "done", replacement: e.text.trim(), usage: e.usage };
     }
@@ -162,8 +78,11 @@ export async function* edit(req: EditRequest): AsyncGenerator<EditStreamEvent> {
 /** Stream a side-panel chat reply. */
 export async function* chat(req: ChatRequest): AsyncGenerator<ChatStreamEvent> {
   try {
-    for await (const e of streamTurn(buildChatPrompt(req), req.sessionId)) {
-      if (e.kind === "session") yield { type: "session", sessionId: e.id };
+    for await (const e of appServer().runTurn({
+      sessionId: req.sessionId,
+      prompt: buildChatPrompt(req),
+    })) {
+      if (e.kind === "session") yield { type: "session", sessionId: e.threadId };
       else if (e.kind === "delta") yield { type: "delta", text: e.text };
       else yield { type: "done", reply: e.text, usage: e.usage };
     }
