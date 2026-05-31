@@ -79,7 +79,8 @@ export async function* agentEdit(req: AgentEditRequest): AsyncGenerator<AgentEdi
     if (req.docKind === "docx") {
       writeFileSync(join(work, file), Buffer.from(req.docBase64 ?? "", "base64"));
       writeFileSync(join(work, "AGENTS.md"), docxGuide(file));
-      symlinkSync(nodeModulesDir(), join(work, "node_modules"));
+      // "junction" on Windows: directory symlinks there need admin/dev mode.
+      symlinkSync(nodeModulesDir(), join(work, "node_modules"), process.platform === "win32" ? "junction" : undefined);
     } else {
       writeFileSync(join(work, file), req.text ?? "");
       writeFileSync(join(work, "AGENTS.md"), markdownGuide(file));
