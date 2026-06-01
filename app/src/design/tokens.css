@@ -3,7 +3,7 @@
  *
  * Concept: a warm manuscript page resting on a cool graphite desk. The chrome
  * (toolbar, panels, popovers) is quiet dark graphite; the editing surface is
- * warm paper with ink. One restrained accent (amber) reads as "you / brand";
+ * warm paper with ink. One restrained accent (cool blue) reads as "you / brand";
  * a cool blue reads as "AI at work"; green/red are reserved for diffs.
  *
  * Two layers: primitive scales, then semantic aliases. Components only ever use
@@ -35,11 +35,12 @@
   --ink-500: #6b6860;
   --ink-300: #9c988c;
 
-  /* ── Primitives: accent (amber) + AI (blue) + semantic ────────────────── */
-  --amber-600: #b67d33;
-  --amber-500: #d2a24c;
-  --amber-400: #e3b568;
-  --amber-100: #f0d9a8;
+  /* ── Primitives: accent (cool blue) + AI + semantic ───────────────────── */
+  --blue-700: #2f63d6;
+  --blue-600: #3a78f0;
+  --blue-500: #4d8bfd;
+  --blue-400: #74a4ff;
+  --blue-100: #c7dbff;
 
   --azure-500: #6aa3f5;
   --azure-400: #8db8f7;
@@ -76,11 +77,11 @@
   --paper-muted: var(--ink-500);
 
   /* ── Semantic: accent + state ─────────────────────────────────────────── */
-  --accent: var(--amber-500);
-  --accent-hover: var(--amber-400);
-  --accent-contrast: #1a1304;
-  --accent-soft: rgba(210, 162, 76, 0.16);
-  --accent-ring: rgba(210, 162, 76, 0.45);
+  --accent: var(--blue-500);
+  --accent-hover: var(--blue-400);
+  --accent-contrast: #f3f8ff;
+  --accent-soft: rgba(77, 139, 253, 0.18);
+  --accent-ring: rgba(77, 139, 253, 0.5);
 
   --ai: var(--azure-500);
   --ai-soft: rgba(106, 163, 245, 0.16);

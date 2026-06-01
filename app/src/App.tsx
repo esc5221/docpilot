@@ -55,7 +55,7 @@ export default function App() {
     return editor ? new TiptapAdapter(editor) : null;
   }, [kind, docxReady, editor]);
 
-  const panel = useResizablePanel({ initial: 384, min: 300, max: 680, storageKey: "dp.panelWidth" });
+  const panel = useResizablePanel({ initial: 384, min: 300, max: 2000, storageKey: "dp.panelWidth" });
 
   // Mirror the editor's selection into the chat context store (Cursor-style).
   useEffect(() => {

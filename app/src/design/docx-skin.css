@@ -11,9 +11,9 @@
 
 /* Accent + radius cohesion (the component reads these HSL-triplet vars). */
 .ep-root {
-  --primary: 38 58% 52%; /* amber, matches app accent */
-  --primary-foreground: 36 45% 12%;
-  --ring: 38 58% 52%;
+  --primary: 219 97% 65%; /* cool blue, matches app accent */
+  --primary-foreground: 213 100% 98%;
+  --ring: 219 97% 65%;
   --radius: 0.6rem;
 }
 
@@ -34,12 +34,12 @@
   opacity: 0.4 !important;
 }
 
-/* Active / toggled state (Bold on, etc.) — subtle amber tint. */
+/* Active / toggled state (Bold on, etc.) — subtle blue tint. */
 .ep-root button[data-state="on"],
 .ep-root button[aria-pressed="true"],
 .ep-root button.bg-slate-200 {
-  background-color: rgba(210, 162, 76, 0.2) !important;
-  color: #8a5a14 !important;
+  background-color: rgba(77, 139, 253, 0.18) !important;
+  color: #2f63d6 !important;
 }
 
 /* ── Dropdown triggers (zoom / heading / font) — flat with a hairline ─────── */
