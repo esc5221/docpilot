@@ -548,6 +548,64 @@ body {
   vertical-align: middle;
 }
 
+/* ── Edit diff + revert (in a chat message) ──────────────────────────────── */
+.dp-diff-block {
+  margin-top: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+.dp-diff-line {
+  margin: 0;
+  padding: 2px var(--space-2) 2px var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  position: relative;
+}
+.dp-diff-line::before {
+  position: absolute;
+  left: var(--space-2);
+  opacity: 0.7;
+}
+.dp-diff-add {
+  background: var(--add-bg);
+  color: var(--add);
+}
+.dp-diff-add::before {
+  content: "+";
+}
+.dp-diff-del {
+  background: var(--del-bg);
+  color: var(--del);
+}
+.dp-diff-del::before {
+  content: "−";
+}
+.dp-msg-actions {
+  margin-top: var(--space-2);
+  display: flex;
+  gap: var(--space-2);
+}
+.dp-revert {
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+.dp-revert:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-ring);
+}
+
 /* ── Composer ────────────────────────────────────────────────────────────── */
 .dp-composer {
   flex: 0 0 auto;

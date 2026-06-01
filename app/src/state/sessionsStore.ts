@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
+import type { DiffPart } from "../util/diffText";
 
 /** A tool-call or reasoning step the agent emitted while editing (Codex-style). */
 export interface ChatStep {
@@ -15,6 +16,10 @@ export interface ChatMessage {
   text: string;
   /** Agent timeline (edit turns): shell commands + reasoning, in order. */
   steps?: ChatStep[];
+  /** Changed lines (before → after) for an edit turn. */
+  diff?: DiffPart[];
+  /** Key into the in-memory snapshot store, enabling a one-click revert. */
+  revertId?: string;
 }
 
 export interface ChatSession {

@@ -33,6 +33,11 @@ export class DocxAdapter implements EditorAdapter {
     if (result.docBase64) await this.ref.loadDocumentBuffer(base64ToBytes(result.docBase64));
   }
 
+  getPlainText(): string {
+    const doc = this.ref.getEditorRef()?.getView()?.state.doc;
+    return doc ? doc.textBetween(0, doc.content.size, "\n", "\n") : "";
+  }
+
   /** Screenshot the current page element (docx renders to DOM, not canvas). */
   async capturePageImage(): Promise<string | null> {
     const page = this.ref.getCurrentPage?.() ?? 1;

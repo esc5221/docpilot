@@ -26,6 +26,9 @@ export interface EditorAdapter {
   /** Snapshot the current document to hand to the agentic editor. */
   collectDoc(): Promise<DocSnapshot>;
 
+  /** The document as plain text with line breaks — for before/after diffing. */
+  getPlainText(): string;
+
   /** Load an edited document back into the editor. */
   reload(result: DocSnapshot): Promise<void>;
 

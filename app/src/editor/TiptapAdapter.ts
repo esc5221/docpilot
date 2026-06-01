@@ -26,6 +26,10 @@ export class TiptapAdapter implements EditorAdapter {
     return { text: this.editor.storage.markdown.getMarkdown() };
   }
 
+  getPlainText(): string {
+    return this.editor.storage.markdown.getMarkdown();
+  }
+
   async reload(result: DocSnapshot): Promise<void> {
     if (result.text != null) this.editor.commands.setContent(result.text, true);
   }

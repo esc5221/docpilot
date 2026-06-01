@@ -5,6 +5,8 @@ import type { EditorAdapter } from "../editor/EditorAdapter";
 import { useDocumentStore } from "../documents/documentStore";
 import { useSelectionStore } from "../state/selectionStore";
 import { type ChatMessage, type ChatStep, useSessionsStore } from "../state/sessionsStore";
+import { computeDiff } from "../util/diffText";
+import { hasSnapshot, stashSnapshot, takeSnapshot } from "../util/revertStore";
 
 type Mode = "ask" | "edit";
 
@@ -61,6 +63,22 @@ export function ChatPanel({ adapter }: Props) {
     next[next.length - 1] = fn(next[next.length - 1]);
     store().setMessages(next);
   };
+  const patchAt = (i: number, fn: (m: ChatMessage) => ChatMessage) => {
+    const next = [...curMessages()];
+    if (!next[i]) return;
+    next[i] = fn(next[i]);
+    store().setMessages(next);
+  };
+
+  /** Restore the document to the snapshot taken before this edit. */
+  const revert = async (index: number, revertId: string) => {
+    const snap = takeSnapshot(revertId);
+    if (!snap || !adapter) return;
+    await adapter.reload(snap);
+    useDocumentStore.getState().setDirty(true);
+    patchAt(index, (m) => ({ ...m, diff: undefined, revertId: undefined, text: `${m.text} · reverted` }));
+    store().persist();
+  };
   const scrollDown = () =>
     requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }));
 
@@ -86,13 +104,16 @@ export function ChatPanel({ adapter }: Props) {
       replaceLast("Open a document first.");
       return;
     }
-    const doc = await adapter.collectDoc();
+    // Snapshot the doc (both the request payload and the revert point) + its
+    // text, so we can diff before → after once the edit lands.
+    const snapshot = await adapter.collectDoc();
+    const beforeText = adapter.getPlainText();
     const req: AgentEditRequest = {
       docKind: adapter.kind,
       instruction: text,
       selection: selection || undefined,
-      text: doc.text,
-      docBase64: doc.docBase64,
+      text: snapshot.text,
+      docBase64: snapshot.docBase64,
       imageBase64: image ?? undefined,
     };
     const agent = await getAgent();
@@ -122,7 +143,14 @@ export function ChatPanel({ adapter }: Props) {
       } else if (ev.type === "done") {
         await adapter.reload({ text: ev.text, docBase64: ev.docBase64 });
         useDocumentStore.getState().setDirty(true);
-        patchLast((m) => ({ ...m, text: `✏️ ${ev.summary}` }));
+        const diff = computeDiff(beforeText, adapter.getPlainText());
+        const revertId = stashSnapshot(snapshot);
+        patchLast((m) => ({
+          ...m,
+          text: `✏️ ${ev.summary}`,
+          diff: diff.length ? diff : undefined,
+          revertId,
+        }));
       } else if (ev.type === "error") {
         patchLast((m) => ({ ...m, text: `⚠ ${ev.message}` }));
       }
@@ -255,6 +283,24 @@ export function ChatPanel({ adapter }: Props) {
             ) : busy && i === messages.length - 1 && !(m.steps && m.steps.length) ? (
               "…"
             ) : null}
+
+            {m.diff && m.diff.length > 0 && (
+              <div className="dp-diff-block">
+                {m.diff.map((p, j) => (
+                  <pre key={j} className={`dp-diff-line dp-diff-${p.kind}`}>
+                    {p.text}
+                  </pre>
+                ))}
+              </div>
+            )}
+
+            {m.revertId && hasSnapshot(m.revertId) && (
+              <div className="dp-msg-actions">
+                <button className="dp-revert" onClick={() => void revert(i, m.revertId!)}>
+                  ↩ Revert
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>
