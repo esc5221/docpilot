@@ -76,7 +76,7 @@ export function ChatPanel({ adapter }: Props) {
     if (!snap || !adapter) return;
     await adapter.reload(snap);
     useDocumentStore.getState().setDirty(true);
-    patchAt(index, (m) => ({ ...m, diff: undefined, revertId: undefined, text: `${m.text} · reverted` }));
+    patchAt(index, (m) => ({ ...m, diff: undefined, revertId: undefined, text: "↩ Reverted" }));
     store().persist();
   };
   const scrollDown = () =>
@@ -117,7 +117,17 @@ export function ChatPanel({ adapter }: Props) {
       imageBase64: image ?? undefined,
     };
     const agent = await getAgent();
-    let progress = "";
+    // Append streamed text (reasoning / narration) to the timeline, merging
+    // consecutive chunks of the same kind so order is preserved against commands.
+    const appendText = (kind: "reasoning" | "text", text: string) =>
+      patchLast((m) => {
+        const steps = [...(m.steps ?? [])];
+        const last = steps[steps.length - 1];
+        if (last?.kind === kind) steps[steps.length - 1] = { ...last, text: last.text + text };
+        else steps.push({ kind, text });
+        return { ...m, steps };
+      });
+
     for await (const ev of agent.agentEdit(req)) {
       if (ev.type === "command") {
         patchLast((m) => {
@@ -129,28 +139,16 @@ export function ChatPanel({ adapter }: Props) {
           return { ...m, steps };
         });
       } else if (ev.type === "reasoning") {
-        patchLast((m) => {
-          const steps = [...(m.steps ?? [])];
-          const last = steps[steps.length - 1];
-          if (last?.kind === "reasoning")
-            steps[steps.length - 1] = { ...last, text: last.text + ev.text };
-          else steps.push({ kind: "reasoning", text: ev.text });
-          return { ...m, steps };
-        });
+        appendText("reasoning", ev.text);
       } else if (ev.type === "progress") {
-        progress += ev.text;
-        patchLast((m) => ({ ...m, text: progress }));
+        // The agent's narration — part of the timeline, not a trailing block.
+        appendText("text", ev.text);
       } else if (ev.type === "done") {
         await adapter.reload({ text: ev.text, docBase64: ev.docBase64 });
         useDocumentStore.getState().setDirty(true);
         const diff = computeDiff(beforeText, adapter.getPlainText());
         const revertId = stashSnapshot(snapshot);
-        patchLast((m) => ({
-          ...m,
-          text: `✏️ ${ev.summary}`,
-          diff: diff.length ? diff : undefined,
-          revertId,
-        }));
+        patchLast((m) => ({ ...m, diff: diff.length ? diff : undefined, revertId }));
       } else if (ev.type === "error") {
         patchLast((m) => ({ ...m, text: `⚠ ${ev.message}` }));
       }
@@ -270,8 +268,12 @@ export function ChatPanel({ adapter }: Props) {
                       </span>
                       <code>{prettyCommand(s.text)}</code>
                     </div>
-                  ) : (
+                  ) : s.kind === "reasoning" ? (
                     <div key={j} className="dp-step dp-step-reason">
+                      {s.text}
+                    </div>
+                  ) : (
+                    <div key={j} className="dp-step dp-step-text">
                       {s.text}
                     </div>
                   ),

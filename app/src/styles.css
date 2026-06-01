@@ -537,6 +537,13 @@ body {
   word-break: break-word;
   padding-left: 21px;
 }
+.dp-step-text {
+  color: var(--text-primary);
+  line-height: var(--leading-normal);
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding-left: 21px;
+}
 .dp-spinner-xs {
   display: inline-block;
   width: 9px;

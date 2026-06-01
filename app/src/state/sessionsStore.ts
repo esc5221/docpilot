@@ -2,9 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import type { DiffPart } from "../util/diffText";
 
-/** A tool-call or reasoning step the agent emitted while editing (Codex-style). */
+/** A step in the agent's edit timeline: a tool call, reasoning, or its narration. */
 export interface ChatStep {
-  kind: "command" | "reasoning";
+  kind: "command" | "reasoning" | "text";
   text: string;
   /** command only: stable id (for in-place status updates) + run state. */
   id?: string;
