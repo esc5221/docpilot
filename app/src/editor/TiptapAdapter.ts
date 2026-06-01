@@ -1,6 +1,35 @@
 import type { Editor } from "@tiptap/react";
-import type { DocSnapshot, EditorAdapter } from "./EditorAdapter";
+import type { Node as PMNode } from "@tiptap/pm/model";
+import type {
+  DocSnapshot,
+  DurableAnchor,
+  EditorAdapter,
+  ResolvedAnchor,
+  SelectionSnapshot,
+} from "./EditorAdapter";
+import { normalizeText, previewText } from "./EditorAdapter";
 import { extractContext } from "./context";
+import { flashKey } from "./FlashHighlight";
+
+const CTX = 40; // chars of surrounding context captured for anchoring
+
+/** Find an exact substring within any textblock; map to ProseMirror positions. */
+function findText(doc: PMNode, needle: string): { from: number; to: number } | null {
+  if (!needle) return null;
+  let hit: { from: number; to: number } | null = null;
+  doc.descendants((node, pos) => {
+    if (hit) return false;
+    if (!node.isTextblock) return true;
+    const idx = node.textContent.indexOf(needle);
+    if (idx >= 0) {
+      const from = pos + 1 + idx;
+      hit = { from, to: from + needle.length };
+      return false;
+    }
+    return true;
+  });
+  return hit;
+}
 
 /** Adapts a Tiptap (markdown) editor to the app's editor contract. */
 export class TiptapAdapter implements EditorAdapter {
@@ -13,11 +42,30 @@ export class TiptapAdapter implements EditorAdapter {
     return { title: ctx.title, outline: ctx.outline };
   }
 
-  onSelectionChange(cb: (text: string) => void): () => void {
-    const handler = () => {
-      const { from, to } = this.editor.state.selection;
-      cb(from === to ? "" : this.editor.state.doc.textBetween(from, to, "\n", " "));
+  getSelectionSnapshot(): SelectionSnapshot | null {
+    const { from, to } = this.editor.state.selection;
+    if (from === to) return null;
+    const doc = this.editor.state.doc;
+    const text = doc.textBetween(from, to, "\n", " ");
+    const prefix = doc.textBetween(Math.max(0, from - CTX), from, " ", " ");
+    const suffix = doc.textBetween(to, Math.min(doc.content.size, to + CTX), " ", " ");
+    return {
+      text,
+      preview: previewText(text),
+      anchor: {
+        kind: "markdown",
+        quote: text,
+        quoteNorm: normalizeText(text),
+        prefix,
+        suffix,
+        fromHint: from,
+        toHint: to,
+      },
     };
+  }
+
+  onSelectionChange(cb: (snap: SelectionSnapshot | null) => void): () => void {
+    const handler = () => cb(this.getSelectionSnapshot());
     this.editor.on("selectionUpdate", handler);
     return () => this.editor.off("selectionUpdate", handler);
   }
@@ -32,6 +80,47 @@ export class TiptapAdapter implements EditorAdapter {
 
   async reload(result: DocSnapshot): Promise<void> {
     if (result.text != null) this.editor.commands.setContent(result.text, true);
+  }
+
+  async anchorTo(anchor: DurableAnchor): Promise<ResolvedAnchor | null> {
+    if (anchor.kind !== "markdown") return null;
+    const doc = this.editor.state.doc;
+    const size = doc.content.size;
+
+    let range: { from: number; to: number } | null = null;
+
+    // 1) the exact quote (unchanged text — Ask, or an unedited region)
+    range = findText(doc, anchor.quote);
+
+    // 2) the surviving prefix → the edited region starts right after it
+    if (!range && anchor.prefix.trim()) {
+      const tail = anchor.prefix.trim().slice(-24);
+      const pr = findText(doc, tail);
+      if (pr) range = { from: pr.to, to: Math.min(size, pr.to + 1) };
+    }
+
+    // 3) fall back to the capture-time position, clamped
+    if (!range && anchor.fromHint != null) {
+      const from = Math.min(anchor.fromHint, size);
+      range = { from, to: Math.min(anchor.toHint ?? from, size) };
+    }
+    if (!range) return null;
+
+    this.editor.chain().setTextSelection(range).scrollIntoView().run();
+    return { kind: "markdown", ...range };
+  }
+
+  flashRange(target: ResolvedAnchor, ms = 1200): void {
+    if (target.kind !== "markdown") return;
+    const view = this.editor.view;
+    view.dispatch(view.state.tr.setMeta(flashKey, { from: target.from, to: target.to }));
+    setTimeout(() => {
+      try {
+        view.dispatch(view.state.tr.setMeta(flashKey, null));
+      } catch {
+        /* view torn down */
+      }
+    }, ms);
   }
 
   focus(): void {

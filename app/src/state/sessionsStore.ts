@@ -1,6 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import type { DiffPart } from "../util/diffText";
+import type { DurableAnchor } from "../editor/EditorAdapter";
+
+/** The document + region an edit turn targeted (rendered as a context chip). */
+export interface EditTargetRef {
+  docKind: "docx" | "markdown";
+  docName: string;
+  selectionPreview: string;
+  selectionLength: number;
+  anchor?: DurableAnchor;
+  capturedAt: number;
+}
 
 /** A step in the agent's edit timeline: a tool call, reasoning, or its narration. */
 export interface ChatStep {
@@ -20,6 +31,10 @@ export interface ChatMessage {
   diff?: DiffPart[];
   /** Key into the in-memory snapshot store, enabling a one-click revert. */
   revertId?: string;
+  /** Whether this was an Ask or an Edit turn. */
+  messageKind?: "ask" | "edit";
+  /** Document + region this edit targeted (clickable context chip). */
+  editTarget?: EditTargetRef;
 }
 
 export interface ChatSession {

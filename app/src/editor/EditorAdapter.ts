@@ -7,6 +7,35 @@ export interface DocSnapshot {
 }
 
 /**
+ * A durable pointer to a region, designed to survive the document being
+ * reloaded after an edit (positions shift). We anchor by content (quote +
+ * surrounding context / paraId), not by raw position.
+ */
+export type DurableAnchor =
+  | { kind: "docx"; paraId?: string; quote: string; quoteNorm: string }
+  | {
+      kind: "markdown";
+      quote: string;
+      quoteNorm: string;
+      prefix: string;
+      suffix: string;
+      fromHint?: number;
+      toHint?: number;
+    };
+
+/** The user's selection, captured for the chat context chip. */
+export interface SelectionSnapshot {
+  text: string;
+  preview: string;
+  anchor: DurableAnchor;
+}
+
+/** A re-resolved anchor in the *current* document, ready to scroll/flash. */
+export type ResolvedAnchor =
+  | { kind: "docx"; paraId: string }
+  | { kind: "markdown"; from: number; to: number };
+
+/**
  * The single contract the rest of the app depends on for an open document.
  * Markdown (Tiptap) and DOCX (eigenpal docx-editor) each provide one, so adding
  * a format is "write one adapter" — nothing upstream changes.
@@ -17,11 +46,11 @@ export interface EditorAdapter {
   /** Title + outline grounding for the chat panel. */
   docContext(): DocContext;
 
-  /**
-   * Subscribe to selection changes. The callback receives the selected text
-   * (empty when the selection collapses). Returns an unsubscribe fn.
-   */
-  onSelectionChange(cb: (text: string) => void): () => void;
+  /** Subscribe to selection changes (snapshot, or null when collapsed). */
+  onSelectionChange(cb: (snap: SelectionSnapshot | null) => void): () => void;
+
+  /** The current selection as a durable snapshot, or null. */
+  getSelectionSnapshot(): SelectionSnapshot | null;
 
   /** Snapshot the current document to hand to the agentic editor. */
   collectDoc(): Promise<DocSnapshot>;
@@ -32,8 +61,23 @@ export interface EditorAdapter {
   /** Load an edited document back into the editor. */
   reload(result: DocSnapshot): Promise<void>;
 
+  /** Re-resolve an anchor in the current doc and scroll to it. */
+  anchorTo(anchor: DurableAnchor): Promise<ResolvedAnchor | null>;
+
+  /** Briefly highlight a resolved region (~1.2s). */
+  flashRange(target: ResolvedAnchor, ms?: number): void;
+
   /** Capture the current page as a PNG (base64, no data-URL prefix) for vision. */
   capturePageImage?(): Promise<string | null>;
 
   focus(): void;
 }
+
+/** Collapse whitespace + trim — for tolerant content matching. */
+export const normalizeText = (t: string): string => t.replace(/\s+/g, " ").trim();
+
+/** Short single-line preview for the context chip. */
+export const previewText = (t: string, n = 42): string => {
+  const s = normalizeText(t);
+  return s.length > n ? s.slice(0, n) + "…" : s;
+};

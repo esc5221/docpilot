@@ -4,7 +4,12 @@ import { getAgent } from "../agent/agentSingleton";
 import type { EditorAdapter } from "../editor/EditorAdapter";
 import { useDocumentStore } from "../documents/documentStore";
 import { useSelectionStore } from "../state/selectionStore";
-import { type ChatMessage, type ChatStep, useSessionsStore } from "../state/sessionsStore";
+import {
+  type ChatMessage,
+  type ChatStep,
+  type EditTargetRef,
+  useSessionsStore,
+} from "../state/sessionsStore";
 import { computeDiff } from "../util/diffText";
 import { hasSnapshot, stashSnapshot, takeSnapshot } from "../util/revertStore";
 
@@ -20,16 +25,36 @@ function prettyCommand(cmd: string): string {
   return (m ? m[2] : cmd).trim();
 }
 
+function basename(path: string | null): string {
+  if (!path) return "Untitled";
+  return path.split(/[\\/]/).pop() ?? path;
+}
+
 export function ChatPanel({ adapter }: Props) {
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<Mode>("edit");
   const [busy, setBusy] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const selection = useSelectionStore((s) => s.text);
+  const selection = useSelectionStore((s) => s.snapshot);
   const clearSelection = useSelectionStore((s) => s.clear);
+
+  const toggleSteps = (i: number) =>
+    setExpandedSteps((prev) => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
+
+  /** Jump to + flash the region an edit targeted. */
+  const anchorClick = async (t: EditTargetRef) => {
+    if (!t.anchor || !adapter) return;
+    const r = await adapter.anchorTo(t.anchor);
+    if (r) adapter.flashRange(r);
+  };
 
   const sessions = useSessionsStore((s) => s.sessions);
   const currentId = useSessionsStore((s) => s.currentId);
@@ -88,7 +113,7 @@ export function ChatPanel({ adapter }: Props) {
       sessionId: store().sessions.find((s) => s.id === store().currentId)?.threadId ?? undefined,
       message: text,
       context: adapter?.docContext(),
-      selection: selection || undefined,
+      selection: selection?.text || undefined,
       imageBase64: image ?? undefined,
     };
     const agent = await getAgent();
@@ -111,7 +136,7 @@ export function ChatPanel({ adapter }: Props) {
     const req: AgentEditRequest = {
       docKind: adapter.kind,
       instruction: text,
-      selection: selection || undefined,
+      selection: selection?.text || undefined,
       text: snapshot.text,
       docBase64: snapshot.docBase64,
       imageBase64: image ?? undefined,
@@ -148,7 +173,12 @@ export function ChatPanel({ adapter }: Props) {
         useDocumentStore.getState().setDirty(true);
         const diff = computeDiff(beforeText, adapter.getPlainText());
         const revertId = stashSnapshot(snapshot);
-        patchLast((m) => ({ ...m, diff: diff.length ? diff : undefined, revertId }));
+        patchLast((m) => ({
+          ...m,
+          text: ev.summary ? `✏️ ${ev.summary}` : m.text,
+          diff: diff.length ? diff : undefined,
+          revertId,
+        }));
       } else if (ev.type === "error") {
         patchLast((m) => ({ ...m, text: `⚠ ${ev.message}` }));
       }
@@ -166,7 +196,26 @@ export function ChatPanel({ adapter }: Props) {
     const cur = store().sessions.find((s) => s.id === store().currentId);
     if (cur && cur.title === "New chat") store().rename(cur.id, text.slice(0, 40));
 
-    store().setMessages([...curMessages(), { role: "user", text }, { role: "assistant", text: "" }]);
+    // For an edit turn, capture which document + region it targets.
+    let editTarget: EditTargetRef | undefined;
+    if (mode === "edit" && adapter) {
+      const { path, kind } = useDocumentStore.getState();
+      const sel = useSelectionStore.getState().snapshot;
+      editTarget = {
+        docKind: kind,
+        docName: basename(path),
+        selectionPreview: sel?.preview ?? "",
+        selectionLength: sel?.text.length ?? 0,
+        anchor: sel?.anchor,
+        capturedAt: Date.now(),
+      };
+    }
+
+    store().setMessages([
+      ...curMessages(),
+      { role: "user", text },
+      { role: "assistant", text: "", messageKind: mode, editTarget },
+    ]);
 
     try {
       const image = adapter?.capturePageImage ? await adapter.capturePageImage() : null;
@@ -250,61 +299,90 @@ export function ChatPanel({ adapter }: Props) {
             Drag to select — it becomes context for your edit.
           </div>
         )}
-        {messages.map((m, i) => (
-          <div key={i} className={`dp-msg dp-msg-${m.role}`}>
-            {m.steps && m.steps.length > 0 && (
-              <div className="dp-steps">
-                {m.steps.map((s, j) =>
-                  s.kind === "command" ? (
-                    <div key={j} className={`dp-step dp-step-cmd is-${s.status}`}>
-                      <span className="dp-step-icon">
-                        {s.status === "running" ? (
-                          <span className="dp-spinner-xs" />
-                        ) : s.status === "failed" ? (
-                          "✗"
-                        ) : (
-                          "✓"
-                        )}
-                      </span>
-                      <code>{prettyCommand(s.text)}</code>
-                    </div>
-                  ) : s.kind === "reasoning" ? (
-                    <div key={j} className="dp-step dp-step-reason">
-                      {s.text}
-                    </div>
-                  ) : (
-                    <div key={j} className="dp-step dp-step-text">
-                      {s.text}
-                    </div>
-                  ),
-                )}
-              </div>
-            )}
-            {m.text ? (
-              <div className="dp-msg-text">{m.text}</div>
-            ) : busy && i === messages.length - 1 && !(m.steps && m.steps.length) ? (
-              "…"
-            ) : null}
-
-            {m.diff && m.diff.length > 0 && (
-              <div className="dp-diff-block">
-                {m.diff.map((p, j) => (
-                  <pre key={j} className={`dp-diff-line dp-diff-${p.kind}`}>
-                    {p.text}
-                  </pre>
-                ))}
-              </div>
-            )}
-
-            {m.revertId && hasSnapshot(m.revertId) && (
-              <div className="dp-msg-actions">
-                <button className="dp-revert" onClick={() => void revert(i, m.revertId!)}>
-                  ↩ Revert
+        {messages.map((m, i) => {
+          const hasSteps = !!(m.steps && m.steps.length);
+          const expanded =
+            expandedSteps.has(i) ||
+            (busy && i === messages.length - 1) ||
+            m.text.startsWith("⚠");
+          return (
+            <div key={i} className={`dp-msg dp-msg-${m.role}`}>
+              {m.editTarget && (
+                <button
+                  className="dp-ctx-chip"
+                  disabled={!m.editTarget.anchor || !adapter}
+                  title="Jump to this region"
+                  onClick={() => void anchorClick(m.editTarget!)}
+                >
+                  <span className="dp-ctx-doc">📄 {m.editTarget.docName}</span>
+                  {m.editTarget.selectionPreview && (
+                    <span className="dp-ctx-sel">{m.editTarget.selectionPreview}</span>
+                  )}
                 </button>
-              </div>
-            )}
-          </div>
-        ))}
+              )}
+
+              {m.text ? (
+                <div className="dp-msg-text">{m.text}</div>
+              ) : busy && i === messages.length - 1 && !hasSteps ? (
+                "…"
+              ) : null}
+
+              {hasSteps && (
+                <div className="dp-steps-wrap">
+                  <button className="dp-steps-toggle" onClick={() => toggleSteps(i)}>
+                    {expanded ? "▾" : "▸"} Details ({m.steps!.length})
+                  </button>
+                  {expanded && (
+                    <div className="dp-steps">
+                      {m.steps!.map((s, j) =>
+                        s.kind === "command" ? (
+                          <div key={j} className={`dp-step dp-step-cmd is-${s.status}`}>
+                            <span className="dp-step-icon">
+                              {s.status === "running" ? (
+                                <span className="dp-spinner-xs" />
+                              ) : s.status === "failed" ? (
+                                "✗"
+                              ) : (
+                                "✓"
+                              )}
+                            </span>
+                            <code>{prettyCommand(s.text)}</code>
+                          </div>
+                        ) : s.kind === "reasoning" ? (
+                          <div key={j} className="dp-step dp-step-reason">
+                            {s.text}
+                          </div>
+                        ) : (
+                          <div key={j} className="dp-step dp-step-text">
+                            {s.text}
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {m.diff && m.diff.length > 0 && (
+                <div className="dp-diff-block">
+                  {m.diff.map((p, j) => (
+                    <pre key={j} className={`dp-diff-line dp-diff-${p.kind}`}>
+                      {p.text}
+                    </pre>
+                  ))}
+                </div>
+              )}
+
+              {m.revertId && hasSnapshot(m.revertId) && (
+                <div className="dp-msg-actions">
+                  <button className="dp-revert" onClick={() => void revert(i, m.revertId!)}>
+                    ↩ Revert
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Composer */}
@@ -320,8 +398,8 @@ export function ChatPanel({ adapter }: Props) {
 
         {selection && (
           <div className="dp-context-pill">
-            <span className="dp-context-tag">{selection.length} chars</span>
-            <span className="dp-context-snippet">{selection}</span>
+            <span className="dp-context-tag">{selection.text.length} chars</span>
+            <span className="dp-context-snippet">{selection.preview}</span>
             <button className="dp-context-x" title="Remove context" onClick={clearSelection}>
               ✕
             </button>

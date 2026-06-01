@@ -60,8 +60,8 @@ export default function App() {
   // Mirror the editor's selection into the chat context store (Cursor-style).
   useEffect(() => {
     if (!adapter) return;
-    return adapter.onSelectionChange((text) => {
-      if (text.trim()) useSelectionStore.getState().set(text);
+    return adapter.onSelectionChange((snap) => {
+      if (snap) useSelectionStore.getState().set(snap);
     });
   }, [adapter]);
 

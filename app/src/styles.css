@@ -489,6 +489,94 @@ body {
   word-break: break-word;
 }
 
+/* ── Edit context chip (which file + region) ─────────────────────────────── */
+.dp-ctx-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  margin-bottom: var(--space-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+.dp-ctx-chip:hover:not(:disabled) {
+  border-color: var(--accent-ring);
+  background: var(--surface-hover);
+}
+.dp-ctx-chip:disabled {
+  cursor: default;
+}
+.dp-ctx-doc {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+.dp-ctx-sel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-tertiary);
+  border-left: 1px solid var(--border-default);
+  padding-left: var(--space-2);
+}
+.dp-ctx-sel::before {
+  content: "“";
+}
+.dp-ctx-sel::after {
+  content: "”";
+}
+
+/* ── Collapsible agent details ───────────────────────────────────────────── */
+.dp-steps-wrap {
+  margin-top: var(--space-1);
+}
+.dp-steps-toggle {
+  font: inherit;
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-tertiary);
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.dp-steps-toggle:hover {
+  color: var(--text-secondary);
+}
+.dp-steps-wrap .dp-steps {
+  margin-top: var(--space-1);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--border-subtle);
+}
+
+/* ── Anchor flash (markdown decoration) ──────────────────────────────────── */
+.dp-flash {
+  background: var(--accent-soft);
+  border-radius: 2px;
+  animation: dp-flash-fade 1.2s var(--ease-out);
+}
+@keyframes dp-flash-fade {
+  0% {
+    background: var(--accent);
+    color: var(--accent-contrast);
+  }
+  100% {
+    background: var(--accent-soft);
+  }
+}
+
 /* ── Agent timeline (Codex-style tool calls + reasoning) ─────────────────── */
 .dp-steps {
   display: flex;
