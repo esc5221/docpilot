@@ -35,6 +35,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::sidecar_info,
             commands::log_frontend,
+            commands::reveal_in_os,
             commands::read_document,
             commands::write_document,
             commands::read_document_binary,

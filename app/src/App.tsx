@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { DocxEditor, type DocxEditorRef, LocaleProvider } from "@eigenpal/docx-editor-react";
+import { Allotment } from "allotment";
 import "@eigenpal/docx-editor-react/styles.css";
 import "./design/docx-skin.css";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
-import { useResizablePanel } from "./ui/useResizablePanel";
 import { buildExtensions } from "./editor/extensions";
 import { TiptapAdapter } from "./editor/TiptapAdapter";
 import { DocxAdapter } from "./editor/DocxAdapter";
 import type { EditorAdapter } from "./editor/EditorAdapter";
 import { ChatPanel } from "./chat/ChatPanel";
 import { SystemBanner } from "./system/SystemBanner";
+import { WorkspaceSidebar } from "./workspace/WorkspaceSidebar";
 import { useDocumentStore } from "./documents/documentStore";
 import { useSelectionStore } from "./state/selectionStore";
+import { useLayoutStore } from "./state/layoutStore";
+import { useRecentsStore } from "./state/recentsStore";
 import {
   loadDocumentFromPath,
   openDocument,
@@ -29,6 +32,7 @@ function basename(path: string | null): string {
 
 export default function App() {
   const { path, kind, dirty, openDoc, setDirty, setPath } = useDocumentStore();
+  const { sizes, leftVisible, rightVisible, setSizes, toggleLeft, toggleRight } = useLayoutStore();
 
   // Markdown editor (always instantiated; shown only in markdown mode).
   const editor = useEditor({
@@ -47,15 +51,13 @@ export default function App() {
     setDocxReady(r != null);
   }, []);
 
-  // The active adapter the inline-edit engine + chat operate through.
+  // The active adapter the chat + anchoring operate through.
   const adapter: EditorAdapter | null = useMemo(() => {
     if (kind === "docx") {
       return docxReady && docxRef.current ? new DocxAdapter(docxRef.current) : null;
     }
     return editor ? new TiptapAdapter(editor) : null;
   }, [kind, docxReady, editor]);
-
-  const panel = useResizablePanel({ initial: 384, min: 300, max: 2000, storageKey: "dp.panelWidth" });
 
   // Mirror the editor's selection into the chat context store (Cursor-style).
   useEffect(() => {
@@ -77,6 +79,9 @@ export default function App() {
         setDocxBuffer(doc.bytes);
         openDoc(doc.path, "docx", doc.threadId);
       }
+      if (doc.path) {
+        useRecentsStore.getState().add({ path: doc.path, name: basename(doc.path), kind: doc.kind });
+      }
     },
     [editor, openDoc],
   );
@@ -84,6 +89,24 @@ export default function App() {
   const handleOpen = useCallback(async () => {
     applyLoaded(await openDocument());
   }, [applyLoaded]);
+
+  const handleOpenPath = useCallback(
+    async (p: string) => {
+      try {
+        applyLoaded(await loadDocumentFromPath(p));
+      } catch (e) {
+        logToShell("open " + e);
+      }
+    },
+    [applyLoaded],
+  );
+
+  const handleNewMarkdown = useCallback(() => {
+    useSelectionStore.getState().clear();
+    editor?.commands.setContent("", false);
+    setDocxBuffer(null);
+    openDoc(null, "markdown", null);
+  }, [editor, openDoc]);
 
   // Dev-only: auto-open a file path (VITE_AUTOOPEN). No-op in normal use.
   useEffect(() => {
@@ -131,6 +154,13 @@ export default function App() {
     <div className="dp-root">
       <SystemBanner />
       <header className="dp-toolbar">
+        <button
+          className={`dp-icon-btn ${leftVisible ? "is-on" : ""}`}
+          title="Toggle sidebar"
+          onClick={toggleLeft}
+        >
+          ◧
+        </button>
         <div className="dp-brand">docpilot</div>
         <div className="dp-title">
           {basename(path)}
@@ -143,41 +173,56 @@ export default function App() {
           <button className="dp-btn dp-primary" onClick={() => void handleSave()}>
             Save
           </button>
+          <button
+            className={`dp-icon-btn ${rightVisible ? "is-on" : ""}`}
+            title="Toggle chat"
+            onClick={toggleRight}
+          >
+            ◨
+          </button>
         </div>
       </header>
 
-      <main className="dp-main">
-        <section className="dp-editor-wrap" data-kind={kind}>
-          {kind === "docx" ? (
-            <ErrorBoundary label="docx editor">
-              <LocaleProvider>
-                <DocxEditor
-                  ref={setDocxRef}
-                  documentBuffer={docxBuffer}
-                  showToolbar
-                  className="dp-docx"
-                  onChange={() => setDirty(true)}
-                  onError={(e) => logToShell("DocxEditor.onError: " + e.message)}
-                />
-              </LocaleProvider>
-            </ErrorBoundary>
-          ) : (
-            <div className="dp-paper">
-              <EditorContent editor={editor} />
+      <div className="dp-workspace">
+        <Allotment proportionalLayout={false} defaultSizes={sizes} onChange={setSizes}>
+          <Allotment.Pane minSize={180} preferredSize={sizes[0]} snap visible={leftVisible}>
+            <WorkspaceSidebar
+              onOpenFile={() => void handleOpen()}
+              onNewMarkdown={handleNewMarkdown}
+              onOpenPath={(p) => void handleOpenPath(p)}
+            />
+          </Allotment.Pane>
+
+          <Allotment.Pane minSize={420}>
+            <section className="dp-editor-wrap" data-kind={kind}>
+              {kind === "docx" ? (
+                <ErrorBoundary label="docx editor">
+                  <LocaleProvider>
+                    <DocxEditor
+                      ref={setDocxRef}
+                      documentBuffer={docxBuffer}
+                      showToolbar
+                      className="dp-docx"
+                      onChange={() => setDirty(true)}
+                      onError={(e) => logToShell("DocxEditor.onError: " + e.message)}
+                    />
+                  </LocaleProvider>
+                </ErrorBoundary>
+              ) : (
+                <div className="dp-paper">
+                  <EditorContent editor={editor} />
+                </div>
+              )}
+            </section>
+          </Allotment.Pane>
+
+          <Allotment.Pane minSize={320} preferredSize={sizes[2]} snap visible={rightVisible}>
+            <div className="dp-chat">
+              <ChatPanel adapter={adapter} />
             </div>
-          )}
-        </section>
-
-        <div
-          className="dp-resizer"
-          data-active={panel.active}
-          onMouseDown={panel.onMouseDown}
-        />
-
-        <aside className="dp-chat" style={{ width: panel.width }}>
-          <ChatPanel adapter={adapter} />
-        </aside>
-      </main>
+          </Allotment.Pane>
+        </Allotment>
+      </div>
     </div>
   );
 }

@@ -66,6 +66,26 @@ pub fn log_frontend(message: String) {
     eprintln!("[webview] {message}");
 }
 
+/// Reveal a file in the OS file manager (Finder / Explorer).
+#[tauri::command]
+pub fn reveal_in_os(path: String) -> Result<(), String> {
+    let mut cmd = if cfg!(target_os = "macos") {
+        let mut c = std::process::Command::new("open");
+        c.arg("-R").arg(&path);
+        c
+    } else if cfg!(target_os = "windows") {
+        let mut c = std::process::Command::new("explorer");
+        c.arg(format!("/select,{path}"));
+        c
+    } else {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(&path);
+        c
+    };
+    cmd.spawn().map_err(|e| format!("reveal {path}: {e}"))?;
+    Ok(())
+}
+
 /// Read a document's text content from disk.
 #[tauri::command]
 pub fn read_document(path: String) -> Result<String, String> {
