@@ -1,5 +1,6 @@
 import html2canvas from "html2canvas";
 import type { DocxEditorRef } from "@eigenpal/docx-editor-react";
+import { logToShell } from "../diagnostics";
 import type {
   DocSnapshot,
   DurableAnchor,
@@ -123,7 +124,21 @@ export class DocxAdapter implements EditorAdapter {
   }
 
   async reload(result: DocSnapshot): Promise<void> {
-    if (result.docBase64) await this.ref.loadDocumentBuffer(base64ToBytes(result.docBase64));
+    if (!result.docBase64) return;
+    await this.ref.loadDocumentBuffer(base64ToBytes(result.docBase64));
+    // loadDocumentBuffer resolves after parsing, but the PM view rebuilds on a
+    // later render — reading the doc immediately sees an EMPTY view (which
+    // turned the post-edit diff into "whole document deleted"). Wait until the
+    // new view is live so callers diff against the real document.
+    const t0 = Date.now();
+    while (Date.now() - t0 < 5000) {
+      if (this.getPlainText().trim()) {
+        logToShell(`docx.reload: view live after ${Date.now() - t0}ms`);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    logToShell("docx.reload: view still empty after 5s (empty doc or rebuild stall)");
   }
 
   getPlainText(): string {

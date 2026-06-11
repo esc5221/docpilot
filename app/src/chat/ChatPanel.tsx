@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import type { AgentEditRequest, ChatRequest } from "@docpilot/shared";
 import { getAgent } from "../agent/agentSingleton";
 import type { EditorAdapter } from "../editor/EditorAdapter";
@@ -132,6 +133,18 @@ export function ChatPanel({ adapter }: Props) {
   const revert = async (index: number, revertId: string) => {
     const snap = takeSnapshot(revertId);
     if (!snap || !adapter) return;
+    // Reverting restores the WHOLE document as of before this edit — any edit
+    // that landed after it is silently wiped. Warn instead of surprising.
+    const newerEdits = curMessages()
+      .slice(index + 1)
+      .filter((m) => m.revertId && hasSnapshot(m.revertId)).length;
+    if (newerEdits > 0) {
+      const ok = await confirm(
+        `이 시점 이후의 편집 ${newerEdits}건도 함께 사라집니다. 되돌릴까요?`,
+        { title: "docpilot", kind: "warning" },
+      );
+      if (!ok) return;
+    }
     await adapter.reload(snap);
     useDocumentStore.getState().setDirty(true);
     patchAt(index, (m) => ({ ...m, diff: undefined, revertId: undefined, text: "↩ Reverted" }));
