@@ -4,6 +4,7 @@ import { getAgent } from "../agent/agentSingleton";
 import type { EditorAdapter } from "../editor/EditorAdapter";
 import { useDocumentStore } from "../documents/documentStore";
 import { useSelectionStore } from "../state/selectionStore";
+import { useUiStore } from "../state/uiStore";
 import {
   type ChatMessage,
   type ChatStep,
@@ -11,6 +12,7 @@ import {
   useSessionsStore,
 } from "../state/sessionsStore";
 import { computeDiff } from "../util/diffText";
+import { renderMarkdown } from "../util/renderMarkdown";
 import { hasSnapshot, stashSnapshot, takeSnapshot } from "../util/revertStore";
 
 type Mode = "ask" | "edit";
@@ -18,6 +20,18 @@ type Mode = "ask" | "edit";
 interface Props {
   adapter: EditorAdapter | null;
 }
+
+const EDIT_CHIPS: Array<[string, string]> = [
+  ["문법 교정", "문서 전체의 문법과 맞춤법을 교정해줘"],
+  ["간결하게", "문서를 더 간결하게 다듬어줘"],
+  ["제목 다듬기", "제목과 소제목을 더 명확하게 다듬어줘"],
+];
+
+const ASK_CHIPS: Array<[string, string]> = [
+  ["요약", "이 문서를 3줄로 요약해줘"],
+  ["피드백", "이 문서에서 개선할 점을 알려줘"],
+  ["구조 제안", "이 문서의 구조를 어떻게 바꾸면 좋을지 제안해줘"],
+];
 
 /** Strip the "/bin/zsh -lc '...'" wrapper Codex uses, for a clean command line. */
 function prettyCommand(cmd: string): string {
@@ -30,6 +44,16 @@ function basename(path: string | null): string {
   return path.split(/[\\/]/).pop() ?? path;
 }
 
+function relativeTime(ts: number): string {
+  const d = Date.now() - ts;
+  const min = Math.floor(d / 60_000);
+  if (min < 1) return "now";
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
 export function ChatPanel({ adapter }: Props) {
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<Mode>("edit");
@@ -37,10 +61,19 @@ export function ChatPanel({ adapter }: Props) {
   const [listOpen, setListOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
+  const [copied, setCopied] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const selection = useSelectionStore((s) => s.snapshot);
   const clearSelection = useSelectionStore((s) => s.clear);
+  const chatFocusNonce = useUiStore((s) => s.chatFocusNonce);
+
+  // ⌘L: focus the composer.
+  useEffect(() => {
+    if (chatFocusNonce > 0) inputRef.current?.focus();
+  }, [chatFocusNonce]);
 
   const toggleSteps = (i: number) =>
     setExpandedSteps((prev) => {
@@ -108,7 +141,7 @@ export function ChatPanel({ adapter }: Props) {
     requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }));
 
   // ── turns ─────────────────────────────────────────────────────────────────
-  const runAsk = async (text: string, image: string | null) => {
+  const runAsk = async (text: string, image: string | null, signal: AbortSignal) => {
     const req: ChatRequest = {
       sessionId: store().sessions.find((s) => s.id === store().currentId)?.threadId ?? undefined,
       message: text,
@@ -117,16 +150,16 @@ export function ChatPanel({ adapter }: Props) {
       imageBase64: image ?? undefined,
     };
     const agent = await getAgent();
-    for await (const ev of agent.chat(req)) {
+    for await (const ev of agent.chat(req, signal)) {
       if (ev.type === "session") store().bindThread(ev.sessionId);
       else if (ev.type === "delta") appendLast(ev.text);
       else if (ev.type === "error") replaceLast(`⚠ ${ev.message}`);
     }
   };
 
-  const runEdit = async (text: string, image: string | null) => {
+  const runEdit = async (text: string, image: string | null, signal: AbortSignal) => {
     if (!adapter) {
-      replaceLast("Open a document first.");
+      replaceLast("문서를 먼저 열어주세요. (Ask 모드는 문서 없이도 됩니다)");
       return;
     }
     // Snapshot the doc (both the request payload and the revert point) + its
@@ -153,7 +186,7 @@ export function ChatPanel({ adapter }: Props) {
         return { ...m, steps };
       });
 
-    for await (const ev of agent.agentEdit(req)) {
+    for await (const ev of agent.agentEdit(req, signal)) {
       if (ev.type === "command") {
         patchLast((m) => {
           const steps = [...(m.steps ?? [])];
@@ -186,11 +219,18 @@ export function ChatPanel({ adapter }: Props) {
     }
   };
 
-  const send = async () => {
-    const text = input.trim();
+  const stop = () => {
+    abortRef.current?.abort();
+  };
+
+  const send = async (preset?: string) => {
+    const text = (preset ?? input).trim();
     if (!text || busy) return;
     setInput("");
+    if (inputRef.current) inputRef.current.style.height = "auto";
     setBusy(true);
+    const ac = new AbortController();
+    abortRef.current = ac;
 
     // Title a fresh chat from its first message.
     const cur = store().sessions.find((s) => s.id === store().currentId);
@@ -219,16 +259,34 @@ export function ChatPanel({ adapter }: Props) {
 
     try {
       const image = adapter?.capturePageImage ? await adapter.capturePageImage() : null;
-      if (mode === "edit") await runEdit(text, image);
-      else await runAsk(text, image);
+      if (mode === "edit") await runEdit(text, image, ac.signal);
+      else await runAsk(text, image, ac.signal);
     } catch (err) {
-      replaceLast(`⚠ ${err instanceof Error ? err.message : String(err)}`);
+      if (ac.signal.aborted) {
+        patchLast((m) => ({ ...m, text: m.text ? `${m.text}\n\n⏹ 중단됨` : "⏹ 중단됨" }));
+      } else {
+        replaceLast(`⚠ ${err instanceof Error ? err.message : String(err)}`);
+      }
     } finally {
+      if (abortRef.current === ac) abortRef.current = null;
       setBusy(false);
       store().persist();
       scrollDown();
     }
   };
+
+  const copyMessage = async (i: number, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(i);
+      setTimeout(() => setCopied((c) => (c === i ? null : c)), 1200);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+
+  const chips = mode === "edit" ? EDIT_CHIPS : ASK_CHIPS;
+  const sortedSessions = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
 
   return (
     <div className="dp-chat-inner">
@@ -251,7 +309,7 @@ export function ChatPanel({ adapter }: Props) {
 
       {listOpen && (
         <div className="dp-session-list">
-          {sessions.map((s) => (
+          {sortedSessions.map((s) => (
             <div key={s.id} className={`dp-session-item ${s.id === currentId ? "is-on" : ""}`}>
               {editingId === s.id ? (
                 <input
@@ -277,6 +335,7 @@ export function ChatPanel({ adapter }: Props) {
                   onDoubleClick={() => setEditingId(s.id)}
                 >
                   {s.title}
+                  <span className="dp-session-time">{relativeTime(s.updatedAt)}</span>
                 </button>
               )}
               <button className="dp-session-act" title="Rename" onClick={() => setEditingId(s.id)}>
@@ -294,9 +353,12 @@ export function ChatPanel({ adapter }: Props) {
       <div className="dp-chat-log" ref={scrollRef}>
         {messages.length === 0 && (
           <div className="dp-chat-empty">
-            <b>Edit</b> the document, or <b>Ask</b> a question.
+            <div className="dp-chat-empty-title">
+              <b>Edit</b>는 문서를 고치고, <b>Ask</b>는 문서에 대해 답합니다.
+            </div>
+            드래그한 선택 영역이 자동으로 컨텍스트가 됩니다.
             <br />
-            Drag to select — it becomes context for your edit.
+            선택 후 <kbd>⌘K</kbd>로 그 자리에서 바로 고칠 수도 있어요.
           </div>
         )}
         {messages.map((m, i) => {
@@ -322,9 +384,18 @@ export function ChatPanel({ adapter }: Props) {
               )}
 
               {m.text ? (
-                <div className="dp-msg-text">{m.text}</div>
+                m.role === "assistant" ? (
+                  <div
+                    className="dp-msg-text dp-md"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(m.text) }}
+                  />
+                ) : (
+                  <div className="dp-msg-text">{m.text}</div>
+                )
               ) : busy && i === messages.length - 1 && !hasSteps ? (
-                "…"
+                <span className="dp-thinking">
+                  <span className="dp-spinner-xs" /> thinking…
+                </span>
               ) : null}
 
               {hasSteps && (
@@ -373,13 +444,24 @@ export function ChatPanel({ adapter }: Props) {
                 </div>
               )}
 
-              {m.revertId && hasSnapshot(m.revertId) && (
+              {(m.revertId && hasSnapshot(m.revertId)) || (m.role === "assistant" && m.text) ? (
                 <div className="dp-msg-actions">
-                  <button className="dp-revert" onClick={() => void revert(i, m.revertId!)}>
-                    ↩ Revert
-                  </button>
+                  {m.revertId && hasSnapshot(m.revertId) && (
+                    <button className="dp-revert" onClick={() => void revert(i, m.revertId!)}>
+                      ↩ Revert
+                    </button>
+                  )}
+                  {m.role === "assistant" && m.text && (
+                    <button
+                      className="dp-msg-copy"
+                      title="Copy"
+                      onClick={() => void copyMessage(i, m.text)}
+                    >
+                      {copied === i ? "✓ Copied" : "⧉ Copy"}
+                    </button>
+                  )}
                 </div>
-              )}
+              ) : null}
             </div>
           );
         })}
@@ -387,13 +469,32 @@ export function ChatPanel({ adapter }: Props) {
 
       {/* Composer */}
       <div className="dp-composer">
-        <div className="dp-mode">
-          <button className={`dp-seg ${mode === "edit" ? "is-on" : ""}`} onClick={() => setMode("edit")}>
-            Edit
-          </button>
-          <button className={`dp-seg ${mode === "ask" ? "is-on" : ""}`} onClick={() => setMode("ask")}>
-            Ask
-          </button>
+        <div className="dp-composer-top">
+          <div className="dp-mode">
+            <button
+              className={`dp-seg ${mode === "edit" ? "is-on" : ""}`}
+              title="문서를 고칩니다"
+              onClick={() => setMode("edit")}
+            >
+              Edit
+            </button>
+            <button
+              className={`dp-seg ${mode === "ask" ? "is-on" : ""}`}
+              title="문서에 대해 묻습니다"
+              onClick={() => setMode("ask")}
+            >
+              Ask
+            </button>
+          </div>
+          {!busy && !input && messages.length === 0 && (
+            <div className="dp-composer-chips">
+              {chips.map(([label, text]) => (
+                <button key={label} className="dp-chip" onClick={() => void send(text)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {selection && (
@@ -408,19 +509,31 @@ export function ChatPanel({ adapter }: Props) {
 
         <div className="dp-composer-row">
           <textarea
+            ref={inputRef}
             value={input}
-            placeholder={mode === "edit" ? "How should I change this document?" : "Message…"}
-            onChange={(e) => setInput(e.target.value)}
+            rows={1}
+            placeholder={mode === "edit" ? "문서를 어떻게 고칠까요?" : "무엇이든 물어보세요…"}
+            onChange={(e) => {
+              setInput(e.target.value);
+              e.target.style.height = "auto";
+              e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
+            }}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 void send();
               }
             }}
           />
-          <button className="dp-btn dp-primary" onClick={() => void send()} disabled={busy}>
-            {mode === "edit" ? "Edit" : "Send"}
-          </button>
+          {busy ? (
+            <button className="dp-btn dp-stop" title="Stop" onClick={stop}>
+              ◼ Stop
+            </button>
+          ) : (
+            <button className="dp-btn dp-primary" onClick={() => void send()} disabled={!input.trim()}>
+              {mode === "edit" ? "Edit" : "Send"}
+            </button>
+          )}
         </div>
       </div>
     </div>

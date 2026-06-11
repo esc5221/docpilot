@@ -163,5 +163,51 @@
 
   /* ── Layout ───────────────────────────────────────────────────────────── */
   --toolbar-h: 52px;
+  --statusbar-h: 26px;
   --measure: 70ch;
+
+  /* ── Scrollbars (semantic, so the light theme can remap) ──────────────── */
+  --scroll-thumb: var(--graphite-700);
+  --scroll-thumb-hover: var(--graphite-600);
+}
+
+/* ── Light theme — same semantic layer, remapped ──────────────────────────
+   The paper editing surface is identical in both themes; only the chrome
+   flips from graphite to fog. */
+[data-theme="light"] {
+  --surface-app: #eef0f4;
+  --surface-sunken: #e4e7ee;
+  --surface-raised: #f8f9fb;
+  --surface-overlay: #ffffff;
+  --surface-hover: rgba(18, 23, 38, 0.06);
+  --surface-active: rgba(18, 23, 38, 0.1);
+
+  --border-subtle: rgba(18, 23, 38, 0.07);
+  --border-default: rgba(18, 23, 38, 0.12);
+  --border-strong: rgba(18, 23, 38, 0.2);
+
+  --text-primary: #191c24;
+  --text-secondary: #494f5f;
+  --text-tertiary: #7b8294;
+  --text-disabled: #aab0bf;
+
+  --accent: var(--blue-600);
+  --accent-hover: var(--blue-700);
+  --accent-soft: rgba(58, 120, 240, 0.14);
+  --accent-ring: rgba(58, 120, 240, 0.45);
+
+  --ai-soft: rgba(58, 120, 240, 0.1);
+
+  --add: #1d7d4d;
+  --add-bg: #e0f3e8;
+  --del: #c0443d;
+  --del-bg: #fbe9e8;
+
+  --shadow-sm: 0 1px 2px rgba(18, 23, 38, 0.08);
+  --shadow-md: 0 4px 14px rgba(18, 23, 38, 0.1);
+  --shadow-lg: 0 16px 44px rgba(18, 23, 38, 0.18);
+  --shadow-paper: 0 1px 0 rgba(18, 23, 38, 0.03), 0 14px 40px rgba(18, 23, 38, 0.12);
+
+  --scroll-thumb: rgba(18, 23, 38, 0.22);
+  --scroll-thumb-hover: rgba(18, 23, 38, 0.34);
 }

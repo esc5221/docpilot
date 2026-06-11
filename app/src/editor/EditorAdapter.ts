@@ -35,6 +35,12 @@ export type ResolvedAnchor =
   | { kind: "docx"; paraId: string }
   | { kind: "markdown"; from: number; to: number };
 
+/** A live editing range in the current document (ProseMirror positions). */
+export interface EditRange {
+  from: number;
+  to: number;
+}
+
 /**
  * The single contract the rest of the app depends on for an open document.
  * Markdown (Tiptap) and DOCX (eigenpal docx-editor) each provide one, so adding
@@ -45,6 +51,15 @@ export interface EditorAdapter {
 
   /** Title + outline grounding for the chat panel. */
   docContext(): DocContext;
+
+  /** Grounding (before/after window) for the current selection — inline edit. */
+  selectionContext(): DocContext;
+
+  /** The current selection as raw PM positions, or null when collapsed. */
+  getSelectionRange(): EditRange | null;
+
+  /** Replace a range with new content (markdown-aware where supported). */
+  replaceRange(range: EditRange, text: string): void;
 
   /** Subscribe to selection changes (snapshot, or null when collapsed). */
   onSelectionChange(cb: (snap: SelectionSnapshot | null) => void): () => void;
@@ -69,6 +84,18 @@ export interface EditorAdapter {
 
   /** Capture the current page as a PNG (base64, no data-URL prefix) for vision. */
   capturePageImage?(): Promise<string | null>;
+
+  /** Heading outline for the sidebar; each entry can jump to its heading. */
+  getOutline?(): Array<{ level: number; text: string; jump: () => void }>;
+
+  // ── Find bar (optional per format) ─────────────────────────────────────
+  /** All case-insensitive plain-text matches in the document. */
+  findMatches?(query: string): ResolvedAnchor[];
+  /** Paint matches (markdown decorations; docx may no-op). */
+  highlightMatches?(matches: ResolvedAnchor[], activeIndex: number): void;
+  clearMatches?(): void;
+  /** Scroll a match into view without stealing the caret. */
+  revealMatch?(match: ResolvedAnchor): void;
 
   focus(): void;
 }

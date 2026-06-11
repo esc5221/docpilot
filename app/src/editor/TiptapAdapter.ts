@@ -4,12 +4,14 @@ import type {
   DocSnapshot,
   DurableAnchor,
   EditorAdapter,
+  EditRange,
   ResolvedAnchor,
   SelectionSnapshot,
 } from "./EditorAdapter";
 import { normalizeText, previewText } from "./EditorAdapter";
 import { extractContext } from "./context";
 import { flashKey } from "./FlashHighlight";
+import { searchKey } from "./SearchHighlight";
 
 const CTX = 40; // chars of surrounding context captured for anchoring
 
@@ -40,6 +42,22 @@ export class TiptapAdapter implements EditorAdapter {
   docContext() {
     const ctx = extractContext(this.editor, 0, 0);
     return { title: ctx.title, outline: ctx.outline };
+  }
+
+  selectionContext() {
+    const { from, to } = this.editor.state.selection;
+    return extractContext(this.editor, from, to);
+  }
+
+  getSelectionRange(): EditRange | null {
+    const { from, to } = this.editor.state.selection;
+    return from === to ? null : { from, to };
+  }
+
+  replaceRange(range: EditRange, text: string): void {
+    // tiptap-markdown patches insertContentAt to parse markdown (inline-aware),
+    // so bold/lists/etc. in the replacement render instead of showing markup.
+    this.editor.chain().focus().insertContentAt(range, text).run();
   }
 
   getSelectionSnapshot(): SelectionSnapshot | null {
@@ -121,6 +139,61 @@ export class TiptapAdapter implements EditorAdapter {
         /* view torn down */
       }
     }, ms);
+  }
+
+  getOutline(): Array<{ level: number; text: string; jump: () => void }> {
+    const out: Array<{ level: number; text: string; jump: () => void }> = [];
+    this.editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === "heading" && node.textContent.trim()) {
+        out.push({
+          level: (node.attrs.level as number) ?? 1,
+          text: node.textContent.trim(),
+          jump: () =>
+            this.editor.chain().focus().setTextSelection(pos + 1).scrollIntoView().run(),
+        });
+      }
+    });
+    return out;
+  }
+
+  // ── Find bar ──────────────────────────────────────────────────────────
+
+  findMatches(query: string): ResolvedAnchor[] {
+    const needle = query.toLowerCase();
+    if (!needle) return [];
+    const out: ResolvedAnchor[] = [];
+    this.editor.state.doc.descendants((node, pos) => {
+      if (!node.isTextblock) return true;
+      const text = node.textContent.toLowerCase();
+      let idx = text.indexOf(needle);
+      while (idx >= 0) {
+        const from = pos + 1 + idx;
+        out.push({ kind: "markdown", from, to: from + needle.length });
+        idx = text.indexOf(needle, idx + needle.length);
+      }
+      return false;
+    });
+    return out;
+  }
+
+  highlightMatches(matches: ResolvedAnchor[], activeIndex: number): void {
+    const ranges = matches.flatMap((m) =>
+      m.kind === "markdown" ? [{ from: m.from, to: m.to }] : [],
+    );
+    const view = this.editor.view;
+    view.dispatch(view.state.tr.setMeta(searchKey, { ranges, activeIndex }));
+  }
+
+  clearMatches(): void {
+    const view = this.editor.view;
+    view.dispatch(view.state.tr.setMeta(searchKey, null));
+  }
+
+  revealMatch(match: ResolvedAnchor): void {
+    if (match.kind !== "markdown") return;
+    const dom = this.editor.view.domAtPos(match.from);
+    const el = dom.node instanceof HTMLElement ? dom.node : dom.node.parentElement;
+    el?.scrollIntoView({ block: "center" });
   }
 
   focus(): void {

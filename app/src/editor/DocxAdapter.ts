@@ -4,6 +4,7 @@ import type {
   DocSnapshot,
   DurableAnchor,
   EditorAdapter,
+  EditRange,
   ResolvedAnchor,
   SelectionSnapshot,
 } from "./EditorAdapter";
@@ -23,6 +24,34 @@ export class DocxAdapter implements EditorAdapter {
   docContext() {
     // Grounding for chat is optional here; the message itself carries intent.
     return {};
+  }
+
+  selectionContext() {
+    // Window of plain text around the selection, located by content match.
+    const sel = this.ref.getSelectionInfo()?.selectedText ?? "";
+    if (!sel) return {};
+    const plain = this.getPlainText();
+    const idx = plain.indexOf(sel);
+    if (idx < 0) return {};
+    const WINDOW = 600;
+    return {
+      before: plain.slice(Math.max(0, idx - WINDOW), idx).trim() || undefined,
+      after: plain.slice(idx + sel.length, idx + sel.length + WINDOW).trim() || undefined,
+    };
+  }
+
+  getSelectionRange(): EditRange | null {
+    const view = this.ref.getEditorRef()?.getView();
+    if (!view) return null;
+    const { from, to } = view.state.selection;
+    return from === to ? null : { from, to };
+  }
+
+  replaceRange(range: EditRange, text: string): void {
+    const view = this.ref.getEditorRef()?.getView();
+    if (!view) return;
+    // Plain-text replacement; the run's existing character style is inherited.
+    view.dispatch(view.state.tr.insertText(text, range.from, range.to));
   }
 
   getSelectionSnapshot(): SelectionSnapshot | null {
@@ -115,6 +144,21 @@ export class DocxAdapter implements EditorAdapter {
     } catch {
       return null; // capture is best-effort; never block the message
     }
+  }
+
+  // ── Find bar (paragraph-level: the engine reports hits by paraId) ──────
+
+  findMatches(query: string): ResolvedAnchor[] {
+    const q = query.trim();
+    if (!q) return [];
+    const hits = this.ref.findInDocument?.(q, { limit: 200 }) ?? [];
+    return hits.map((h) => ({ kind: "docx" as const, paraId: h.paraId }));
+  }
+
+  revealMatch(match: ResolvedAnchor): void {
+    if (match.kind !== "docx") return;
+    this.ref.scrollToParaId(match.paraId);
+    this.flashRange(match);
   }
 
   focus(): void {

@@ -63,11 +63,12 @@ function buildChatPrompt(req: ChatRequest): string {
 }
 
 /** Stream a surgical edit of a selection. */
-export async function* edit(req: EditRequest): AsyncGenerator<EditStreamEvent> {
+export async function* edit(req: EditRequest, signal?: AbortSignal): AsyncGenerator<EditStreamEvent> {
   try {
     for await (const e of appServer().runTurn({
       sessionId: req.sessionId,
       prompt: buildEditPrompt(req),
+      signal,
     })) {
       if (e.kind === "session") yield { type: "session", sessionId: e.threadId };
       else if (e.kind === "delta") yield { type: "delta", text: e.text };
@@ -79,7 +80,7 @@ export async function* edit(req: EditRequest): AsyncGenerator<EditStreamEvent> {
 }
 
 /** Stream a side-panel chat reply. */
-export async function* chat(req: ChatRequest): AsyncGenerator<ChatStreamEvent> {
+export async function* chat(req: ChatRequest, signal?: AbortSignal): AsyncGenerator<ChatStreamEvent> {
   // Stage an attached page image to a temp file (Codex needs a path).
   let imageDir: string | undefined;
   const imagePaths: string[] = [];
@@ -94,6 +95,7 @@ export async function* chat(req: ChatRequest): AsyncGenerator<ChatStreamEvent> {
       sessionId: req.sessionId,
       prompt: buildChatPrompt(req),
       imagePaths,
+      signal,
     })) {
       if (e.kind === "session") yield { type: "session", sessionId: e.threadId };
       else if (e.kind === "delta") yield { type: "delta", text: e.text };

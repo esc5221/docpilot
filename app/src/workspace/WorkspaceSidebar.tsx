@@ -1,17 +1,39 @@
+import { useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import type { EditorAdapter } from "../editor/EditorAdapter";
 import { useRecentsStore } from "../state/recentsStore";
 import { useDocumentStore } from "../documents/documentStore";
 
 interface Props {
+  adapter: EditorAdapter | null;
+  /** Bumps on content change so the outline stays fresh. */
+  docVersion: number;
   onOpenFile: () => void;
   onNewMarkdown: () => void;
   onOpenPath: (path: string) => void;
 }
 
-export function WorkspaceSidebar({ onOpenFile, onNewMarkdown, onOpenPath }: Props) {
+export function WorkspaceSidebar({
+  adapter,
+  docVersion,
+  onOpenFile,
+  onNewMarkdown,
+  onOpenPath,
+}: Props) {
   const recents = useRecentsStore((s) => s.recents);
   const removeRecent = useRecentsStore((s) => s.remove);
   const currentPath = useDocumentStore((s) => s.path);
+  const activeId = useDocumentStore((s) => s.activeId);
+
+  const outline = useMemo(() => {
+    if (!adapter || !activeId) return [];
+    try {
+      return adapter.getOutline?.() ?? [];
+    } catch {
+      return [];
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adapter, activeId, docVersion]);
 
   return (
     <div className="dp-sidebar">
@@ -23,6 +45,25 @@ export function WorkspaceSidebar({ onOpenFile, onNewMarkdown, onOpenPath }: Prop
           Open…
         </button>
       </div>
+
+      {outline.length > 0 && (
+        <>
+          <div className="dp-side-section">Outline</div>
+          <div className="dp-side-outline">
+            {outline.map((h, i) => (
+              <button
+                key={i}
+                className="dp-outline-item"
+                style={{ paddingLeft: 10 + (h.level - 1) * 14 }}
+                title={h.text}
+                onClick={h.jump}
+              >
+                {h.text}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       <div className="dp-side-section">Recent</div>
       <div className="dp-side-list">

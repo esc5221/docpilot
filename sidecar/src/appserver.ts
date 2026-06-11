@@ -75,6 +75,8 @@ interface RunTurnArgs {
   threadOpts?: ThreadOpts;
   /** Absolute paths of images to attach to the turn (Codex vision). */
   imagePaths?: string[];
+  /** Abort to interrupt the running turn (client disconnected / Stop button). */
+  signal?: AbortSignal;
 }
 
 const DEFAULT_THREAD_OPTS: ThreadOpts = { sandbox: "read-only", approvalPolicy: "never" };
@@ -216,6 +218,11 @@ export class AppServer {
     return { threadId: res.thread.id, isNew: true };
   }
 
+  /** Interrupt a running turn (the thread then emits turn/completed). */
+  interrupt(threadId: string): void {
+    void this.rpc("turn/interrupt", { threadId }).catch(() => {});
+  }
+
   /** Run one turn, streaming token deltas. */
   async *runTurn({
     sessionId,
@@ -223,10 +230,15 @@ export class AppServer {
     outputSchema,
     threadOpts,
     imagePaths,
+    signal,
   }: RunTurnArgs): AsyncGenerator<TurnEvent> {
     await this.ready;
+    if (signal?.aborted) return;
     const { threadId, isNew } = await this.openThread(sessionId, threadOpts ?? DEFAULT_THREAD_OPTS);
     if (isNew) yield { kind: "session", threadId };
+
+    const onAbort = () => this.interrupt(threadId);
+    signal?.addEventListener("abort", onAbort, { once: true });
 
     // Bridge push-based notifications into this pull-based generator.
     type QueueItem = Exclude<TurnEvent, { kind: "session" | "final" }> | { kind: "_end" };
@@ -281,8 +293,10 @@ export class AppServer {
       }
     } finally {
       this.handlers.delete(threadId);
+      signal?.removeEventListener("abort", onAbort);
     }
 
+    if (signal?.aborted) return;
     if (error) throw new Error(error);
     yield { kind: "final", text: finalText ?? acc, usage };
   }

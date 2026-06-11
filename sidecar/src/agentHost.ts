@@ -71,7 +71,10 @@ function markdownGuide(file: string): string {
   ].join("\n");
 }
 
-export async function* agentEdit(req: AgentEditRequest): AsyncGenerator<AgentEditStreamEvent> {
+export async function* agentEdit(
+  req: AgentEditRequest,
+  signal?: AbortSignal,
+): AsyncGenerator<AgentEditStreamEvent> {
   const work = mkdtempSync(join(tmpdir(), "docpilot-edit-"));
   const file = req.docKind === "docx" ? "document.docx" : "document.md";
   try {
@@ -108,6 +111,7 @@ export async function* agentEdit(req: AgentEditRequest): AsyncGenerator<AgentEdi
       prompt,
       threadOpts: { sandbox: "workspace-write", approvalPolicy: "never", cwd: work },
       imagePaths,
+      signal,
     })) {
       if (ev.kind === "delta") yield { type: "progress", text: ev.text };
       else if (ev.kind === "command")
@@ -115,6 +119,9 @@ export async function* agentEdit(req: AgentEditRequest): AsyncGenerator<AgentEdi
       else if (ev.kind === "reasoning") yield { type: "reasoning", text: ev.text };
       else if (ev.kind === "final") summary = ev.text;
     }
+
+    // Interrupted — the client is gone; don't ship a half-edited document.
+    if (signal?.aborted) return;
 
     // Read the edited document back.
     if (req.docKind === "docx") {

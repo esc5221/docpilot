@@ -67,13 +67,29 @@ export async function saveDocx(path: string, bytes: Uint8Array): Promise<void> {
   await invoke("write_document_binary", { path, base64: bytesToBase64(bytes) });
 }
 
-export async function saveMarkdownAs(content: string): Promise<string | null> {
+export async function saveMarkdownAs(
+  content: string,
+  defaultPath = "untitled.md",
+): Promise<string | null> {
   const path = await save({
     filters: [{ name: "Markdown", extensions: ["md"] }],
-    defaultPath: "untitled.md",
+    defaultPath,
   });
   if (!path) return null;
   await invoke("write_document", { path, content });
+  return path;
+}
+
+export async function saveDocxAs(
+  bytes: Uint8Array,
+  defaultPath = "untitled.docx",
+): Promise<string | null> {
+  const path = await save({
+    filters: [{ name: "Word", extensions: ["docx"] }],
+    defaultPath,
+  });
+  if (!path) return null;
+  await saveDocx(path, bytes);
   return path;
 }
 

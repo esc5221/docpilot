@@ -65,6 +65,15 @@ async function pipeSse(res: ServerResponse, stream: AsyncGenerator<unknown>): Pr
   }
 }
 
+/** Aborts when the client disconnects mid-stream (Stop button / closed app). */
+function disconnectSignal(res: ServerResponse): AbortSignal {
+  const ac = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) ac.abort();
+  });
+  return ac.signal;
+}
+
 export interface RunningServer {
   port: number;
   close: () => void;
@@ -96,13 +105,13 @@ export function serve({ port, token }: ServeConfig): Promise<RunningServer> {
 
     if (req.method === "POST" && url.pathname === "/edit") {
       const payload = JSON.parse(await readBody(req)) as EditRequest;
-      await pipeSse(res, edit(payload));
+      await pipeSse(res, edit(payload, disconnectSignal(res)));
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/chat") {
       const payload = JSON.parse(await readBody(req)) as ChatRequest;
-      await pipeSse(res, chat(payload));
+      await pipeSse(res, chat(payload, disconnectSignal(res)));
       return;
     }
 
@@ -114,7 +123,7 @@ export function serve({ port, token }: ServeConfig): Promise<RunningServer> {
 
     if (req.method === "POST" && url.pathname === "/agent-edit") {
       const payload = JSON.parse(await readBody(req)) as AgentEditRequest;
-      await pipeSse(res, agentEdit(payload));
+      await pipeSse(res, agentEdit(payload, disconnectSignal(res)));
       return;
     }
 
